@@ -1,0 +1,88 @@
+import json
+from dataclasses import asdict
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+from agent.app.device_identity import DeviceIdentity
+
+
+class AgentTransportError(RuntimeError):
+    pass
+
+
+class AuditApiClient:
+    def __init__(self, backend_url: str, timeout_seconds: int = 10) -> None:
+        self._backend_url = backend_url.rstrip("/")
+        self._timeout_seconds = timeout_seconds
+
+    def register_device(self, identity: DeviceIdentity) -> dict[str, Any]:
+        return self._post_json(
+            "/api/v1/devices",
+            {
+                "device_id": identity.device_id,
+                "hostname": identity.hostname,
+                "os_name": identity.os_name,
+                "agent_version": identity.agent_version,
+                "metadata": {
+                    "interfaces": json.dumps(
+                        [asdict(interface) for interface in identity.interfaces],
+                    ),
+                },
+            },
+        )
+
+    def send_lifecycle_event(
+        self,
+        identity: DeviceIdentity,
+        event_type: str,
+        occurred_at: str,
+        *,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        return self._post_json(
+            "/api/v1/audit/lifecycle-events",
+            {
+                "event_type": event_type,
+                "occurred_at": occurred_at,
+                "device_id": identity.device_id,
+                "hostname": identity.hostname,
+                "agent_version": identity.agent_version,
+                "local_ip": identity.primary_local_ip,
+                "reason": reason,
+            },
+        )
+
+    def send_network_event(self, payload: dict[str, object]) -> dict[str, Any]:
+        return self._post_json("/api/v1/audit/network-events", payload)
+
+    def _post_json(self, path: str, payload: dict[str, Any] | dict[str, object]) -> dict[str, Any]:
+        body = json.dumps(payload).encode()
+        request = Request(
+            url=f"{self._backend_url}{path}",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "the-all-seeing-eye-agent/0.1.0",
+            },
+            method="POST",
+        )
+
+        try:
+            with urlopen(request, timeout=self._timeout_seconds) as response:
+                raw_response = response.read()
+        except HTTPError as exc:
+            error_body = exc.read().decode(errors="replace")
+            raise AgentTransportError(
+                f"Backend respondio {exc.code} al enviar {path}: {error_body}",
+            ) from exc
+        except URLError as exc:
+            raise AgentTransportError(f"No se pudo conectar con el backend: {exc.reason}") from exc
+
+        if not raw_response:
+            return {}
+
+        decoded = json.loads(raw_response.decode())
+        if not isinstance(decoded, dict):
+            raise AgentTransportError(f"Respuesta inesperada del backend para {path}")
+        return decoded
