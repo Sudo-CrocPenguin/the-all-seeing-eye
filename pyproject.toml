@@ -7,11 +7,22 @@ requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.16.0",
   "fastapi>=0.116.0",
+  "psutil>=7.0.0",
   "psycopg[binary]>=3.2.0",
   "pydantic-settings>=2.10.0",
   "sqlalchemy>=2.0.40",
   "uvicorn[standard]>=0.35.0"
 ]
+
+[project.scripts]
+all-seeing-eye-agent = "agent.app.cli:main"
+
+[build-system]
+requires = ["setuptools>=80.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["agent*", "backend*"]
 
 [project.optional-dependencies]
 dev = [
@@ -36,4 +47,3 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.12"
 strict = true
 plugins = []
-
