@@ -4,15 +4,19 @@ from fastapi.responses import JSONResponse
 from backend.app.audit.presentation.router import router as audit_router
 from backend.app.devices.presentation.router import router as devices_router
 from backend.app.health.router import router as health_router
-from backend.app.shared.config import get_settings
+from backend.app.shared.config import Settings, get_settings
 from backend.app.shared.container import build_container
 from backend.app.shared.domain import DomainValidationError
 
 
-def create_app() -> FastAPI:
-    settings = get_settings()
-    app = FastAPI(title=settings.app_name, version="0.1.0")
-    app.state.container = build_container()
+def create_app(
+    *,
+    settings: Settings | None = None,
+    create_schema: bool = False,
+) -> FastAPI:
+    resolved_settings = settings or get_settings()
+    app = FastAPI(title=resolved_settings.app_name, version="0.1.0")
+    app.state.container = build_container(resolved_settings, create_schema=create_schema)
 
     @app.exception_handler(DomainValidationError)
     async def domain_validation_handler(
@@ -28,4 +32,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-
