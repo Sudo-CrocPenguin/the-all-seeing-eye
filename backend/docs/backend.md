@@ -1,6 +1,6 @@
 # Backend De Auditoria
 
-Este backend recibe telemetria de agentes instalados en computadores corporativos autorizados. En el primer incremento guarda los eventos en memoria para validar el contrato HTTP y el modelo de dominio; la configuracion de PostgreSQL y los modelos SQLAlchemy quedan listos para conectar persistencia real en el siguiente paso.
+Este backend recibe telemetria de agentes instalados en computadores corporativos autorizados. Los eventos se persisten con SQLAlchemy en PostgreSQL y las migraciones se gestionan con Alembic.
 
 ## Que Es
 
@@ -21,8 +21,8 @@ Sirve para que los agentes Windows/Linux reporten actividad tecnica de red y est
 2. El agente envia conexiones observadas a `POST /api/v1/audit/network-events`.
 3. El agente envia eventos de estado a `POST /api/v1/audit/lifecycle-events`.
 4. El backend valida los datos con entidades de dominio.
-5. El repositorio actual guarda los eventos en memoria.
-6. Los endpoints `GET` permiten consultar eventos durante la ejecucion local.
+5. Los repositorios SQLAlchemy guardan los registros en la base de datos.
+6. Los endpoints `GET` consultan eventos persistidos por filtros operativos.
 
 ## Ejecutar Localmente
 
@@ -53,16 +53,37 @@ http://127.0.0.1:8000/docs
 
 ## Base De Datos Local
 
-Levantar PostgreSQL para el siguiente incremento:
+Levantar PostgreSQL:
 
 ```bash
 docker compose up -d postgres
+```
+
+Si el puerto `5432` ya esta ocupado en tu maquina, puedes levantarlo en otro puerto:
+
+```bash
+POSTGRES_PORT=5433 docker compose up -d postgres
 ```
 
 Variable principal:
 
 ```text
 DATABASE_URL=postgresql+psycopg://audit:audit@localhost:5432/the_all_seeing_eye
+POSTGRES_HOST=127.0.0.1
+POSTGRES_PORT=5432
+PERSISTENCE_BACKEND=sqlalchemy
+```
+
+Crear o actualizar las tablas:
+
+```bash
+.venv/bin/python -m alembic upgrade head
+```
+
+Modo alternativo en memoria para pruebas rapidas sin base de datos externa:
+
+```text
+PERSISTENCE_BACKEND=memory
 ```
 
 ## Endpoints Iniciales
@@ -106,3 +127,4 @@ Eventos de ciclo de vida:
 .venv/bin/python -m ruff check .
 ```
 
+Las pruebas del API usan SQLAlchemy sobre SQLite en memoria. Esto valida los repositorios y la transaccion por request sin depender de Docker o de una base PostgreSQL local.

@@ -1,12 +1,24 @@
 import httpx
 import pytest
+from fastapi import FastAPI
 
 from backend.app.main import create_app
+from backend.app.shared.config import Settings
+
+
+def create_test_app() -> FastAPI:
+    return create_app(
+        settings=Settings(
+            database_url="sqlite+pysqlite:///:memory:",
+            persistence_backend="sqlalchemy",
+        ),
+        create_schema=True,
+    )
 
 
 @pytest.mark.anyio
 async def test_health_check() -> None:
-    transport = httpx.ASGITransport(app=create_app())
+    transport = httpx.ASGITransport(app=create_test_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.get("/health")
 
@@ -16,7 +28,7 @@ async def test_health_check() -> None:
 
 @pytest.mark.anyio
 async def test_register_and_list_devices() -> None:
-    transport = httpx.ASGITransport(app=create_app())
+    transport = httpx.ASGITransport(app=create_test_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.post(
             "/api/v1/devices",
@@ -39,7 +51,7 @@ async def test_register_and_list_devices() -> None:
 
 @pytest.mark.anyio
 async def test_ingest_and_search_network_events() -> None:
-    transport = httpx.ASGITransport(app=create_app())
+    transport = httpx.ASGITransport(app=create_test_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.post(
             "/api/v1/audit/network-events",
@@ -79,7 +91,7 @@ async def test_ingest_and_search_network_events() -> None:
 
 @pytest.mark.anyio
 async def test_ingest_and_search_lifecycle_events() -> None:
-    transport = httpx.ASGITransport(app=create_app())
+    transport = httpx.ASGITransport(app=create_test_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.post(
             "/api/v1/audit/lifecycle-events",
