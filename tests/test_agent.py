@@ -13,6 +13,12 @@ from agent.app.env_file import parse_environment_lines
 from agent.app.network_collector import NetworkConnectionCollector, ObservedNetworkConnection
 from agent.app.runner import AgentConfigurationError, AgentRunner
 from agent.app.transport import AuditApiClient
+from agent.app.windows_service import (
+    WINDOWS_SERVICE_DESCRIPTION,
+    WINDOWS_SERVICE_DISPLAY_NAME,
+    WINDOWS_SERVICE_NAME,
+    load_pywin32_modules,
+)
 
 
 def test_agent_settings_from_environment(monkeypatch: Any) -> None:
@@ -217,6 +223,26 @@ def test_api_client_sends_agent_token_header(monkeypatch: Any) -> None:
     client.register_device(identity)
 
     assert captured_headers["X-agent-token"] == "agent-token"
+
+
+def test_windows_service_metadata_is_corporate_and_visible() -> None:
+    assert WINDOWS_SERVICE_NAME == "AllSeeingEyeAgent"
+    assert WINDOWS_SERVICE_DISPLAY_NAME == "The All Seeing Eye Agent"
+    assert "corporativo autorizado" in WINDOWS_SERVICE_DESCRIPTION
+
+
+def test_windows_service_reports_missing_pywin32(monkeypatch: Any) -> None:
+    def raise_import_error(_name: str) -> object:
+        raise ImportError("missing")
+
+    monkeypatch.setattr("agent.app.windows_service.importlib.import_module", raise_import_error)
+
+    try:
+        load_pywin32_modules()
+    except RuntimeError as exc:
+        assert "pywin32" in str(exc)
+    else:
+        raise AssertionError("El servicio Windows debe explicar que falta pywin32")
 
 
 class FakeIdentityCollector:

@@ -32,6 +32,9 @@ dev = [
   "ruff>=0.12.0",
   "types-psutil>=7.0.0"
 ]
+windows-service = [
+  "pywin32>=306; platform_system == 'Windows'"
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
