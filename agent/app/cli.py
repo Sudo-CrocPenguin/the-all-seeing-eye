@@ -1,6 +1,9 @@
 import argparse
+import json
+from dataclasses import asdict
 
 from agent.app.config import AgentSettings
+from agent.app.device_identity import DeviceIdentityCollector
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,6 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Ejecuta un ciclo de registro y recoleccion, luego termina.",
     )
+    parser.add_argument(
+        "--identify",
+        action="store_true",
+        help="Imprime la identidad detectada del dispositivo y termina.",
+    )
     return parser
 
 
@@ -43,6 +51,11 @@ def main() -> None:
         network_event_dedup_seconds=settings.network_event_dedup_seconds,
         request_timeout_seconds=settings.request_timeout_seconds,
     )
+
+    if args.identify:
+        identity = DeviceIdentityCollector(settings).collect()
+        print(json.dumps(asdict(identity), indent=2))
+        return
 
     if args.once:
         print(f"Agente configurado para {settings.backend_url}")
