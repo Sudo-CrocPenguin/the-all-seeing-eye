@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from hashlib import sha256
+from pathlib import Path
 from platform import platform, system
 from socket import AF_INET, gethostname
+from typing import Any
 from uuid import getnode
 
 import psutil
@@ -102,6 +104,48 @@ class DeviceIdentityCollector:
 
     @staticmethod
     def _build_device_id(hostname: str, os_name: str) -> str:
-        raw_identity = f"{hostname}|{os_name}|{getnode()}".encode()
+        raw_identity = f"{hostname}|{os_name}|{_machine_fingerprint()}".encode()
         digest = sha256(raw_identity).hexdigest()[:16]
         return f"device-{digest}"
+
+
+def _machine_fingerprint() -> str:
+    machine_id = _linux_machine_id()
+    if machine_id:
+        return machine_id
+
+    windows_machine_guid = _windows_machine_guid()
+    if windows_machine_guid:
+        return windows_machine_guid
+
+    return str(getnode())
+
+
+def _linux_machine_id() -> str | None:
+    for path in (Path("/etc/machine-id"), Path("/var/lib/dbus/machine-id")):
+        try:
+            value = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if value:
+            return value
+    return None
+
+
+def _windows_machine_guid() -> str | None:
+    try:
+        import winreg
+    except ImportError:
+        return None
+
+    winreg_module: Any = winreg
+    try:
+        with winreg_module.OpenKey(
+            winreg_module.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Cryptography",
+        ) as key:
+            value, _value_type = winreg_module.QueryValueEx(key, "MachineGuid")
+    except OSError:
+        return None
+
+    return value.strip() if isinstance(value, str) and value.strip() else None

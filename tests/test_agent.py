@@ -3,7 +3,12 @@ from types import SimpleNamespace
 from typing import Any
 
 from agent.app.config import AgentSettings
-from agent.app.device_identity import DeviceIdentity, DeviceIdentityCollector, NetworkInterface
+from agent.app.device_identity import (
+    DeviceIdentity,
+    DeviceIdentityCollector,
+    NetworkInterface,
+    _machine_fingerprint,
+)
 from agent.app.network_collector import NetworkConnectionCollector, ObservedNetworkConnection
 from agent.app.runner import AgentRunner
 
@@ -34,6 +39,10 @@ def test_device_identity_uses_configured_id_and_handles_interface_permission(
 
     assert identity.device_id == "device-fixed"
     assert identity.interfaces == ()
+
+
+def test_machine_fingerprint_has_fallback_value() -> None:
+    assert _machine_fingerprint()
 
 
 def test_network_collector_builds_connection_payload(monkeypatch: Any) -> None:
