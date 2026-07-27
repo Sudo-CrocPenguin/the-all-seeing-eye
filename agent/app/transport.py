@@ -12,8 +12,17 @@ class AgentTransportError(RuntimeError):
 
 
 class AuditApiClient:
-    def __init__(self, backend_url: str, timeout_seconds: int = 10) -> None:
+    def __init__(
+        self,
+        backend_url: str,
+        *,
+        agent_token: str,
+        agent_token_header: str = "X-Agent-Token",
+        timeout_seconds: int = 10,
+    ) -> None:
         self._backend_url = backend_url.rstrip("/")
+        self._agent_token = agent_token
+        self._agent_token_header = agent_token_header
         self._timeout_seconds = timeout_seconds
 
     def register_device(self, identity: DeviceIdentity) -> dict[str, Any]:
@@ -64,6 +73,7 @@ class AuditApiClient:
             headers={
                 "Content-Type": "application/json",
                 "User-Agent": "the-all-seeing-eye-agent/0.1.0",
+                self._agent_token_header: self._agent_token,
             },
             method="POST",
         )

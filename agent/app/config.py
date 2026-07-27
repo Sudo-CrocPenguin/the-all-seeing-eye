@@ -15,6 +15,8 @@ def _get_int(name: str, default: int) -> int:
 class AgentSettings:
     backend_url: str = "http://127.0.0.1:8000"
     device_id: str | None = None
+    agent_token: str | None = None
+    agent_token_header: str = "X-Agent-Token"
     heartbeat_interval_seconds: int = 60
     scan_interval_seconds: int = 15
     network_event_dedup_seconds: int = 300
@@ -29,9 +31,17 @@ class AgentSettings:
         return cls(
             backend_url=getenv("AGENT_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/"),
             device_id=device_id,
+            agent_token=_normalize_optional_text(getenv("AGENT_TOKEN")),
+            agent_token_header=getenv("AGENT_TOKEN_HEADER", "X-Agent-Token"),
             heartbeat_interval_seconds=_get_int("AGENT_HEARTBEAT_INTERVAL_SECONDS", 60),
             scan_interval_seconds=_get_int("AGENT_SCAN_INTERVAL_SECONDS", 15),
             network_event_dedup_seconds=_get_int("AGENT_NETWORK_EVENT_DEDUP_SECONDS", 300),
             request_timeout_seconds=_get_int("AGENT_REQUEST_TIMEOUT_SECONDS", 10),
         )
 
+
+def _normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None

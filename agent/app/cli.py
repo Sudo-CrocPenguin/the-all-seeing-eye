@@ -5,7 +5,7 @@ from dataclasses import asdict
 
 from agent.app.config import AgentSettings
 from agent.app.device_identity import DeviceIdentityCollector
-from agent.app.runner import AgentRunner
+from agent.app.runner import AgentConfigurationError, AgentRunner
 from agent.app.transport import AgentTransportError
 
 
@@ -49,6 +49,8 @@ def main() -> None:
     settings = AgentSettings(
         backend_url=(args.backend_url or settings.backend_url).rstrip("/"),
         device_id=args.device_id or settings.device_id,
+        agent_token=settings.agent_token,
+        agent_token_header=settings.agent_token_header,
         heartbeat_interval_seconds=args.heartbeat_interval or settings.heartbeat_interval_seconds,
         scan_interval_seconds=args.scan_interval or settings.scan_interval_seconds,
         network_event_dedup_seconds=settings.network_event_dedup_seconds,
@@ -67,7 +69,7 @@ def main() -> None:
             return
 
         AgentRunner(settings).run_forever()
-    except AgentTransportError as exc:
+    except (AgentConfigurationError, AgentTransportError) as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from exc
 

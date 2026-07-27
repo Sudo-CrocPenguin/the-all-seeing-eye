@@ -10,6 +10,10 @@ from agent.app.network_collector import NetworkConnectionCollector, ObservedNetw
 from agent.app.transport import AuditApiClient
 
 
+class AgentConfigurationError(RuntimeError):
+    pass
+
+
 class IdentityCollector(Protocol):
     def collect(self) -> DeviceIdentity:
         raise NotImplementedError
@@ -51,6 +55,8 @@ class AgentRunner:
         self._network_collector = network_collector or NetworkConnectionCollector()
         self._api_client = api_client or AuditApiClient(
             settings.backend_url,
+            agent_token=self._require_agent_token(settings),
+            agent_token_header=settings.agent_token_header,
             timeout_seconds=settings.request_timeout_seconds,
         )
         self._stop_requested = Event()
@@ -74,6 +80,12 @@ class AgentRunner:
 
     def request_stop(self) -> None:
         self._stop_requested.set()
+
+    @staticmethod
+    def _require_agent_token(settings: AgentSettings) -> str:
+        if not settings.agent_token:
+            raise AgentConfigurationError("AGENT_TOKEN es obligatorio para reportar al backend")
+        return settings.agent_token
 
     def _bootstrap(self) -> DeviceIdentity:
         identity = self._identity_collector.collect()

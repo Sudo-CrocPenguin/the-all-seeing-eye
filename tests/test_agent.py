@@ -10,12 +10,15 @@ from agent.app.device_identity import (
     _machine_fingerprint,
 )
 from agent.app.network_collector import NetworkConnectionCollector, ObservedNetworkConnection
-from agent.app.runner import AgentRunner
+from agent.app.runner import AgentConfigurationError, AgentRunner
+from agent.app.transport import AuditApiClient
 
 
 def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     monkeypatch.setenv("AGENT_BACKEND_URL", "http://backend.local:8000/")
     monkeypatch.setenv("AGENT_DEVICE_ID", "device-123")
+    monkeypatch.setenv("AGENT_TOKEN", "agent-token")
+    monkeypatch.setenv("AGENT_TOKEN_HEADER", "X-Custom-Agent-Token")
     monkeypatch.setenv("AGENT_HEARTBEAT_INTERVAL_SECONDS", "30")
     monkeypatch.setenv("AGENT_SCAN_INTERVAL_SECONDS", "5")
 
@@ -23,6 +26,8 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
 
     assert settings.backend_url == "http://backend.local:8000"
     assert settings.device_id == "device-123"
+    assert settings.agent_token == "agent-token"
+    assert settings.agent_token_header == "X-Custom-Agent-Token"
     assert settings.heartbeat_interval_seconds == 30
     assert settings.scan_interval_seconds == 5
 
@@ -121,6 +126,52 @@ def test_runner_once_reports_lifecycle_and_network_event() -> None:
     ]
     assert len(api_client.network_events) == 1
     assert api_client.network_events[0]["destination_ip"] == "93.184.216.34"
+
+
+def test_runner_requires_agent_token_when_using_real_client() -> None:
+    try:
+        AgentRunner(AgentSettings())
+    except AgentConfigurationError as exc:
+        assert "AGENT_TOKEN" in str(exc)
+    else:
+        raise AssertionError("AgentRunner debe exigir AGENT_TOKEN")
+
+
+def test_api_client_sends_agent_token_header(monkeypatch: Any) -> None:
+    captured_headers: dict[str, str] = {}
+
+    class FakeResponse:
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"{}"
+
+    def fake_urlopen(request: Any, timeout: int) -> FakeResponse:
+        assert timeout == 10
+        captured_headers.update(dict(request.header_items()))
+        return FakeResponse()
+
+    monkeypatch.setattr("agent.app.transport.urlopen", fake_urlopen)
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    client = AuditApiClient(
+        "http://backend.local:8000",
+        agent_token="agent-token",
+        agent_token_header="X-Agent-Token",
+    )
+
+    client.register_device(identity)
+
+    assert captured_headers["X-agent-token"] == "agent-token"
 
 
 class FakeIdentityCollector:
