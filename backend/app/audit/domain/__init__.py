@@ -1,0 +1,2 @@
+"""Audit domain model."""
+

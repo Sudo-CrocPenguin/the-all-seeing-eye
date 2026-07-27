@@ -256,3 +256,7 @@ La plataforma debe implementar controles de proteccion desde el inicio:
 ## Estado Actual
 
 El proyecto se encuentra en etapa de definicion e inicio de MVP.
+
+## Documentacion Tecnica
+
+- [Backend de auditoria](backend/docs/backend.md)
