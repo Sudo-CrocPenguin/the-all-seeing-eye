@@ -2,6 +2,10 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from backend.app.devices.application.provision_agent_credential import (
+    ProvisionAgentCredentialCommand,
+    ProvisionedAgentCredential,
+)
 from backend.app.devices.application.register_device import RegisterDeviceCommand
 from backend.app.devices.domain.entities import Device
 
@@ -20,6 +24,30 @@ class RegisterDeviceRequest(BaseModel):
             os_name=self.os_name,
             agent_version=self.agent_version,
             metadata=self.metadata,
+        )
+
+
+class ProvisionAgentCredentialRequest(BaseModel):
+    device_id: str
+
+    def to_command(self) -> ProvisionAgentCredentialCommand:
+        return ProvisionAgentCredentialCommand(device_id=self.device_id)
+
+
+class ProvisionAgentCredentialResponse(BaseModel):
+    device_id: str
+    token: str
+    created_at: datetime
+
+    @classmethod
+    def from_result(
+        cls,
+        result: ProvisionedAgentCredential,
+    ) -> "ProvisionAgentCredentialResponse":
+        return cls(
+            device_id=result.device_id,
+            token=result.token,
+            created_at=result.created_at,
         )
 
 
@@ -43,4 +71,3 @@ class DeviceResponse(BaseModel):
             last_seen_at=device.last_seen_at,
             metadata=device.metadata,
         )
-

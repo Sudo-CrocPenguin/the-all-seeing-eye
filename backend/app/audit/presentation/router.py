@@ -20,6 +20,7 @@ from backend.app.audit.presentation.schemas import (
 )
 from backend.app.shared.container import AppContainer
 from backend.app.shared.dependencies import get_container
+from backend.app.shared.security import require_agent_token
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 
@@ -49,6 +50,12 @@ async def ingest_network_event(
     request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
 ) -> NetworkAuditEventResponse:
+    require_agent_token(
+        request,
+        request.app.state.container.settings,
+        container,
+        device_id=payload.device_id,
+    )
     use_case = IngestNetworkAuditEventUseCase(container.network_event_repository)
     event = use_case.execute(payload.to_command(_observed_public_ip(request)))
     return NetworkAuditEventResponse.from_domain(event)
@@ -92,6 +99,12 @@ async def ingest_lifecycle_event(
     request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
 ) -> AgentLifecycleEventResponse:
+    require_agent_token(
+        request,
+        request.app.state.container.settings,
+        container,
+        device_id=payload.device_id,
+    )
     use_case = IngestAgentLifecycleEventUseCase(container.lifecycle_event_repository)
     event = use_case.execute(payload.to_command(_observed_public_ip(request)))
     return AgentLifecycleEventResponse.from_domain(event)
