@@ -5,15 +5,34 @@ from fastapi import FastAPI
 from backend.app.main import create_app
 from backend.app.shared.config import Settings
 
+PROVISIONING_TOKEN = "test-provisioning-token"
+
 
 def create_test_app() -> FastAPI:
     return create_app(
         settings=Settings(
             database_url="sqlite+pysqlite:///:memory:",
             persistence_backend="sqlalchemy",
+            provisioning_token=PROVISIONING_TOKEN,
         ),
         create_schema=True,
     )
+
+
+async def provision_agent_token(
+    client: httpx.AsyncClient,
+    *,
+    device_id: str = "device-1",
+) -> str:
+    response = await client.post(
+        "/api/v1/devices/agent-credentials",
+        headers={"X-Provisioning-Token": PROVISIONING_TOKEN},
+        json={"device_id": device_id},
+    )
+    assert response.status_code == 201
+    token = response.json()["token"]
+    assert isinstance(token, str)
+    return token
 
 
 @pytest.mark.anyio
@@ -30,8 +49,10 @@ async def test_health_check() -> None:
 async def test_register_and_list_devices() -> None:
     transport = httpx.ASGITransport(app=create_test_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
         response = await client.post(
             "/api/v1/devices",
+            headers={"X-Agent-Token": agent_token},
             json={
                 "device_id": "device-1",
                 "hostname": "DEV-LAPTOP-001",
@@ -53,8 +74,10 @@ async def test_register_and_list_devices() -> None:
 async def test_ingest_and_search_network_events() -> None:
     transport = httpx.ASGITransport(app=create_test_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
         response = await client.post(
             "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
             json={
                 "occurred_at": "2026-07-27T14:00:00-05:00",
                 "device_id": "device-1",
@@ -93,8 +116,10 @@ async def test_ingest_and_search_network_events() -> None:
 async def test_ingest_and_search_lifecycle_events() -> None:
     transport = httpx.ASGITransport(app=create_test_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
         response = await client.post(
             "/api/v1/audit/lifecycle-events",
+            headers={"X-Agent-Token": agent_token},
             json={
                 "event_type": "AGENT_MISSED_HEARTBEAT",
                 "occurred_at": "2026-07-27T14:03:00-05:00",
@@ -118,3 +143,44 @@ async def test_ingest_and_search_lifecycle_events() -> None:
         )
         assert search_response.status_code == 200
         assert len(search_response.json()) == 1
+
+
+@pytest.mark.anyio
+async def test_agent_writes_require_valid_token() -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        missing_token_response = await client.post(
+            "/api/v1/devices",
+            json={
+                "device_id": "device-1",
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+            },
+        )
+        assert missing_token_response.status_code == 401
+
+        await provision_agent_token(client)
+        invalid_token_response = await client.post(
+            "/api/v1/devices",
+            headers={"X-Agent-Token": "token-incorrecto"},
+            json={
+                "device_id": "device-1",
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+            },
+        )
+        assert invalid_token_response.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_provisioning_requires_admin_token() -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            "/api/v1/devices/agent-credentials",
+            json={"device_id": "device-1"},
+        )
+
+    assert response.status_code == 401

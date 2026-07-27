@@ -90,6 +90,7 @@ PERSISTENCE_BACKEND=memory
 
 ```text
 GET  /health
+POST /api/v1/devices/agent-credentials
 POST /api/v1/devices
 GET  /api/v1/devices
 POST /api/v1/audit/network-events
@@ -97,6 +98,49 @@ GET  /api/v1/audit/network-events
 POST /api/v1/audit/lifecycle-events
 GET  /api/v1/audit/lifecycle-events
 ```
+
+## Autenticacion De Agentes
+
+Las escrituras realizadas por agentes requieren un token por dispositivo enviado en el header:
+
+```text
+X-Agent-Token: <token-del-agente>
+```
+
+Los endpoints protegidos son:
+
+```text
+POST /api/v1/devices
+POST /api/v1/audit/network-events
+POST /api/v1/audit/lifecycle-events
+```
+
+El token no se guarda en claro. El backend guarda hash y sal en la tabla `agent_credentials`.
+
+### Provisionar Token
+
+Para crear o rotar un token de agente se usa el endpoint de provision protegido por token administrativo:
+
+```text
+X-Provisioning-Token: <token-administrativo>
+```
+
+Configurar el token administrativo en el backend:
+
+```text
+PROVISIONING_TOKEN=valor-administrativo-seguro
+```
+
+Crear credencial:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/devices/agent-credentials \
+  -H "Content-Type: application/json" \
+  -H "X-Provisioning-Token: valor-administrativo-seguro" \
+  -d '{"device_id":"device-001"}'
+```
+
+La respuesta incluye el token una sola vez para configurar el agente.
 
 ## Filtros Disponibles
 

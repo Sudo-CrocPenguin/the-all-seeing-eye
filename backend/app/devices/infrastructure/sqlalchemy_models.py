@@ -16,3 +16,14 @@ class DeviceModel(Base):
     registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     extra_metadata: Mapped[dict[str, str]] = mapped_column("metadata", JSON, nullable=False)
+
+
+class AgentCredentialModel(Base):
+    __tablename__ = "agent_credentials"
+
+    device_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    token_salt: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
