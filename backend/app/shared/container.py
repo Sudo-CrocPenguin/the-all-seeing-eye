@@ -15,8 +15,15 @@ from backend.app.audit.infrastructure.sqlalchemy_event_repository import (
     SQLAlchemyAgentLifecycleEventRepository,
     SQLAlchemyNetworkAuditEventRepository,
 )
+from backend.app.devices.domain.credential_repository import AgentCredentialRepository
 from backend.app.devices.domain.repositories import DeviceRepository
+from backend.app.devices.infrastructure.memory_credential_repository import (
+    InMemoryAgentCredentialRepository,
+)
 from backend.app.devices.infrastructure.memory_device_repository import InMemoryDeviceRepository
+from backend.app.devices.infrastructure.sqlalchemy_credential_repository import (
+    SQLAlchemyAgentCredentialRepository,
+)
 from backend.app.devices.infrastructure.sqlalchemy_device_repository import (
     SQLAlchemyDeviceRepository,
 )
@@ -27,6 +34,9 @@ from backend.app.shared.database import build_engine, create_database_schema
 @dataclass(slots=True)
 class AppContainer:
     device_repository: DeviceRepository = field(default_factory=InMemoryDeviceRepository)
+    agent_credential_repository: AgentCredentialRepository = field(
+        default_factory=InMemoryAgentCredentialRepository,
+    )
     network_event_repository: NetworkAuditEventRepository = field(
         default_factory=InMemoryNetworkAuditEventRepository,
     )
@@ -43,6 +53,9 @@ class RuntimeContainer:
     memory_device_repository: InMemoryDeviceRepository = field(
         default_factory=InMemoryDeviceRepository,
     )
+    memory_agent_credential_repository: InMemoryAgentCredentialRepository = field(
+        default_factory=InMemoryAgentCredentialRepository,
+    )
     memory_network_event_repository: InMemoryNetworkAuditEventRepository = field(
         default_factory=InMemoryNetworkAuditEventRepository,
     )
@@ -53,6 +66,7 @@ class RuntimeContainer:
     def build_memory_container(self) -> AppContainer:
         return AppContainer(
             device_repository=self.memory_device_repository,
+            agent_credential_repository=self.memory_agent_credential_repository,
             network_event_repository=self.memory_network_event_repository,
             lifecycle_event_repository=self.memory_lifecycle_event_repository,
         )
@@ -60,6 +74,7 @@ class RuntimeContainer:
     def build_sqlalchemy_container(self, session: Session) -> AppContainer:
         return AppContainer(
             device_repository=SQLAlchemyDeviceRepository(session),
+            agent_credential_repository=SQLAlchemyAgentCredentialRepository(session),
             network_event_repository=SQLAlchemyNetworkAuditEventRepository(session),
             lifecycle_event_repository=SQLAlchemyAgentLifecycleEventRepository(session),
         )
