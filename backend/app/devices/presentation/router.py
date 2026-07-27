@@ -11,7 +11,7 @@ router = APIRouter(prefix="/devices", tags=["devices"])
 
 
 @router.post("", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
-def register_device(
+async def register_device(
     payload: RegisterDeviceRequest,
     container: Annotated[AppContainer, Depends(get_container)],
 ) -> DeviceResponse:
@@ -21,8 +21,7 @@ def register_device(
 
 
 @router.get("", response_model=list[DeviceResponse])
-def list_devices(
+async def list_devices(
     container: Annotated[AppContainer, Depends(get_container)],
 ) -> list[DeviceResponse]:
     return [DeviceResponse.from_domain(device) for device in container.device_repository.list_all()]
-

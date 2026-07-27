@@ -23,6 +23,10 @@ from backend.app.shared.dependencies import get_container
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 
+FromDateTimeQuery = Annotated[datetime | None, Query(alias="from")]
+ToDateTimeQuery = Annotated[datetime | None, Query(alias="to")]
+LimitQuery = Annotated[int, Query(ge=1, le=500)]
+
 
 def _observed_public_ip(request: Request) -> str | None:
     if request.client is None:
@@ -40,7 +44,7 @@ def _observed_public_ip(request: Request) -> str | None:
     response_model=NetworkAuditEventResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def ingest_network_event(
+async def ingest_network_event(
     payload: NetworkAuditEventRequest,
     request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
@@ -51,7 +55,7 @@ def ingest_network_event(
 
 
 @router.get("/network-events", response_model=list[NetworkAuditEventResponse])
-def search_network_events(
+async def search_network_events(
     container: Annotated[AppContainer, Depends(get_container)],
     device_id: str | None = None,
     local_ip: str | None = None,
@@ -59,9 +63,9 @@ def search_network_events(
     destination_host: str | None = None,
     destination_ip: str | None = None,
     protocol: str | None = None,
-    from_datetime: datetime | None = Query(default=None, alias="from"),
-    to_datetime: datetime | None = Query(default=None, alias="to"),
-    limit: int = Query(default=100, ge=1, le=500),
+    from_datetime: FromDateTimeQuery = None,
+    to_datetime: ToDateTimeQuery = None,
+    limit: LimitQuery = 100,
 ) -> list[NetworkAuditEventResponse]:
     filters = NetworkAuditEventFilters(
         device_id=device_id,
@@ -83,7 +87,7 @@ def search_network_events(
     response_model=AgentLifecycleEventResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def ingest_lifecycle_event(
+async def ingest_lifecycle_event(
     payload: AgentLifecycleEventRequest,
     request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
@@ -94,13 +98,13 @@ def ingest_lifecycle_event(
 
 
 @router.get("/lifecycle-events", response_model=list[AgentLifecycleEventResponse])
-def search_lifecycle_events(
+async def search_lifecycle_events(
     container: Annotated[AppContainer, Depends(get_container)],
     device_id: str | None = None,
     event_type: str | None = None,
-    from_datetime: datetime | None = Query(default=None, alias="from"),
-    to_datetime: datetime | None = Query(default=None, alias="to"),
-    limit: int = Query(default=100, ge=1, le=500),
+    from_datetime: FromDateTimeQuery = None,
+    to_datetime: ToDateTimeQuery = None,
+    limit: LimitQuery = 100,
 ) -> list[AgentLifecycleEventResponse]:
     filters = AgentLifecycleEventFilters(
         device_id=device_id,
@@ -111,4 +115,3 @@ def search_lifecycle_events(
     )
     events = container.lifecycle_event_repository.search(filters)
     return [AgentLifecycleEventResponse.from_domain(event) for event in events]
-

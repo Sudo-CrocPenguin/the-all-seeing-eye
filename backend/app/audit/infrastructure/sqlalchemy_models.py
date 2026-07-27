@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Integer, JSON, String
+from sqlalchemy import JSON, BigInteger, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.shared.database import Base
@@ -48,4 +48,3 @@ class AgentLifecycleEventModel(Base):
     detected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     downtime_seconds: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-

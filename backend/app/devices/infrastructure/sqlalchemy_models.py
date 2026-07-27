@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, JSON, String
+from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.shared.database import Base
@@ -16,4 +16,3 @@ class DeviceModel(Base):
     registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     extra_metadata: Mapped[dict[str, str]] = mapped_column("metadata", JSON, nullable=False)
-
