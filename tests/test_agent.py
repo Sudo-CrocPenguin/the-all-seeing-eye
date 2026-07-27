@@ -9,6 +9,7 @@ from agent.app.device_identity import (
     NetworkInterface,
     _machine_fingerprint,
 )
+from agent.app.env_file import parse_environment_lines
 from agent.app.network_collector import NetworkConnectionCollector, ObservedNetworkConnection
 from agent.app.runner import AgentConfigurationError, AgentRunner
 from agent.app.transport import AuditApiClient
@@ -30,6 +31,50 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     assert settings.agent_token_header == "X-Custom-Agent-Token"
     assert settings.heartbeat_interval_seconds == 30
     assert settings.scan_interval_seconds == 5
+
+
+def test_agent_settings_from_env_file(tmp_path: Any, monkeypatch: Any) -> None:
+    monkeypatch.delenv("AGENT_BACKEND_URL", raising=False)
+    monkeypatch.delenv("AGENT_DEVICE_ID", raising=False)
+    monkeypatch.delenv("AGENT_TOKEN", raising=False)
+    env_file = tmp_path / "agent.env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "AGENT_BACKEND_URL=http://backend.local:8000/",
+                "AGENT_DEVICE_ID=device-file",
+                "AGENT_TOKEN=token-file",
+                "AGENT_HEARTBEAT_INTERVAL_SECONDS=20",
+            ],
+        ),
+        encoding="utf-8",
+    )
+
+    settings = AgentSettings.from_environment(env_file)
+
+    assert settings.backend_url == "http://backend.local:8000"
+    assert settings.device_id == "device-file"
+    assert settings.agent_token == "token-file"
+    assert settings.heartbeat_interval_seconds == 20
+
+
+def test_environment_variables_override_env_file(tmp_path: Any, monkeypatch: Any) -> None:
+    monkeypatch.setenv("AGENT_BACKEND_URL", "http://env.local:8000")
+    env_file = tmp_path / "agent.env"
+    env_file.write_text("AGENT_BACKEND_URL=http://file.local:8000\n", encoding="utf-8")
+
+    settings = AgentSettings.from_environment(env_file)
+
+    assert settings.backend_url == "http://env.local:8000"
+
+
+def test_parse_environment_lines_rejects_invalid_variable() -> None:
+    try:
+        parse_environment_lines(["AGENT TOKEN=invalid"])
+    except ValueError as exc:
+        assert "variable invalida" in str(exc)
+    else:
+        raise AssertionError("El archivo env debe rechazar nombres invalidos")
 
 
 def test_device_identity_uses_configured_id_and_handles_interface_permission(

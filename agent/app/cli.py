@@ -16,6 +16,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="URL base del backend de auditoria.",
     )
     parser.add_argument(
+        "--env-file",
+        help="Archivo de configuracion KEY=VALUE para ejecutar el agente como servicio.",
+    )
+    parser.add_argument(
         "--device-id",
         help="Identificador estable del dispositivo. Si se omite, se genera desde el equipo.",
     )
@@ -45,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    settings = AgentSettings.from_environment()
+    settings = AgentSettings.from_environment(args.env_file)
     settings = AgentSettings(
         backend_url=(args.backend_url or settings.backend_url).rstrip("/"),
         device_id=args.device_id or settings.device_id,

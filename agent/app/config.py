@@ -1,5 +1,8 @@
 from dataclasses import dataclass
 from os import getenv
+from pathlib import Path
+
+from agent.app.env_file import load_agent_environment
 
 AGENT_VERSION = "0.1.0"
 
@@ -23,7 +26,8 @@ class AgentSettings:
     request_timeout_seconds: int = 10
 
     @classmethod
-    def from_environment(cls) -> "AgentSettings":
+    def from_environment(cls, env_file: str | Path | None = None) -> "AgentSettings":
+        load_agent_environment(env_file)
         device_id = getenv("AGENT_DEVICE_ID")
         if device_id is not None and device_id.strip() == "":
             device_id = None
