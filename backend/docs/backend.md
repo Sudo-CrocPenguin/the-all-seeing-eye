@@ -59,10 +59,18 @@ Levantar PostgreSQL:
 docker compose up -d postgres
 ```
 
+Si el puerto `5432` ya esta ocupado en tu maquina, puedes levantarlo en otro puerto:
+
+```bash
+POSTGRES_PORT=5433 docker compose up -d postgres
+```
+
 Variable principal:
 
 ```text
 DATABASE_URL=postgresql+psycopg://audit:audit@localhost:5432/the_all_seeing_eye
+POSTGRES_HOST=127.0.0.1
+POSTGRES_PORT=5432
 PERSISTENCE_BACKEND=sqlalchemy
 ```
 
