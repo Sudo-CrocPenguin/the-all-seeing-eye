@@ -255,7 +255,7 @@ La plataforma debe implementar controles de proteccion desde el inicio:
 
 ## Estado Actual
 
-El proyecto se encuentra en etapa de MVP del backend. La API inicial ya cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic y persistencia PostgreSQL configurada.
+El proyecto se encuentra en etapa de MVP. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. El agente MVP puede identificar el equipo, reportar ciclo de vida y enviar conexiones salientes basicas.
 
 ## Documentacion Tecnica
 
