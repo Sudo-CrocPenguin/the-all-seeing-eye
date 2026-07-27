@@ -53,10 +53,10 @@ class AuditApiClient:
             },
         )
 
-    def send_network_event(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def send_network_event(self, payload: dict[str, object]) -> dict[str, Any]:
         return self._post_json("/api/v1/audit/network-events", payload)
 
-    def _post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post_json(self, path: str, payload: dict[str, Any] | dict[str, object]) -> dict[str, Any]:
         body = json.dumps(payload).encode()
         request = Request(
             url=f"{self._backend_url}{path}",
@@ -86,4 +86,3 @@ class AuditApiClient:
         if not isinstance(decoded, dict):
             raise AgentTransportError(f"Respuesta inesperada del backend para {path}")
         return decoded
-

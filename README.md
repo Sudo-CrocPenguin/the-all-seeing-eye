@@ -260,3 +260,4 @@ El proyecto se encuentra en etapa de MVP del backend. La API inicial ya cuenta c
 ## Documentacion Tecnica
 
 - [Backend de auditoria](backend/docs/backend.md)
+- [Agente MVP de auditoria](agent/docs/agent.md)

@@ -34,3 +34,31 @@ AGENT_REQUEST_TIMEOUT_SECONDS=10
 .venv/bin/python -m agent.app.cli --backend-url http://127.0.0.1:8000 --once
 ```
 
+Comprobar identidad detectada:
+
+```bash
+.venv/bin/python -m agent.app.cli --identify
+```
+
+Ejecutar en modo continuo:
+
+```bash
+.venv/bin/python -m agent.app.cli --backend-url http://127.0.0.1:8000
+```
+
+## Que Reporta En El MVP
+
+- Registro del dispositivo en el backend.
+- `AGENT_STARTED` al iniciar.
+- `AGENT_HEARTBEAT` en cada ciclo.
+- `AGENT_STOPPING` y `AGENT_STOPPED` al finalizar correctamente.
+- Conexiones salientes observadas mediante `psutil.net_connections`.
+
+Los eventos de red incluyen IP local, IP destino, puerto destino, protocolo, interfaz y MAC cuando el sistema operativo permite leer esos datos. Los bytes enviados y recibidos quedan en `0` en este MVP porque `psutil.net_connections` no expone contadores por conexion individual.
+
+## Limites Del MVP
+
+- No captura contenido de solicitudes/respuestas.
+- No interpreta metodo HTTP ni status code.
+- No intercepta TLS.
+- No intenta ocultarse ni impedir que IT lo administre.

@@ -60,12 +60,12 @@ def main() -> None:
         print(json.dumps(asdict(identity), indent=2))
         return
 
-    if args.once:
-        AgentRunner(settings).run_once()
-        print(f"Agente ejecuto un ciclo contra {settings.backend_url}")
-        return
-
     try:
+        if args.once:
+            AgentRunner(settings).run_once()
+            print(f"Agente ejecuto un ciclo contra {settings.backend_url}")
+            return
+
         AgentRunner(settings).run_forever()
     except AgentTransportError as exc:
         print(str(exc), file=sys.stderr)

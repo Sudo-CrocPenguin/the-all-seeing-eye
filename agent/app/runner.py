@@ -1,6 +1,7 @@
 from datetime import datetime
 from signal import SIGINT, SIGTERM, signal
 from threading import Event
+from typing import Any, Protocol
 
 from agent.app.clock import to_iso, utc_now
 from agent.app.config import AgentSettings
@@ -9,13 +10,41 @@ from agent.app.network_collector import NetworkConnectionCollector, ObservedNetw
 from agent.app.transport import AuditApiClient
 
 
+class IdentityCollector(Protocol):
+    def collect(self) -> DeviceIdentity:
+        raise NotImplementedError
+
+
+class ConnectionCollector(Protocol):
+    def collect(self, identity: DeviceIdentity) -> list[ObservedNetworkConnection]:
+        raise NotImplementedError
+
+
+class AgentApiClient(Protocol):
+    def register_device(self, identity: DeviceIdentity) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def send_lifecycle_event(
+        self,
+        identity: DeviceIdentity,
+        event_type: str,
+        occurred_at: str,
+        *,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def send_network_event(self, payload: dict[str, object]) -> dict[str, Any]:
+        raise NotImplementedError
+
+
 class AgentRunner:
     def __init__(
         self,
         settings: AgentSettings,
-        identity_collector: DeviceIdentityCollector | None = None,
-        network_collector: NetworkConnectionCollector | None = None,
-        api_client: AuditApiClient | None = None,
+        identity_collector: IdentityCollector | None = None,
+        network_collector: ConnectionCollector | None = None,
+        api_client: AgentApiClient | None = None,
     ) -> None:
         self._settings = settings
         self._identity_collector = identity_collector or DeviceIdentityCollector(settings)
