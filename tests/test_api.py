@@ -1,11 +1,12 @@
 import httpx
 import pytest
+from fastapi import FastAPI
 
 from backend.app.main import create_app
 from backend.app.shared.config import Settings
 
 
-def create_test_app():
+def create_test_app() -> FastAPI:
     return create_app(
         settings=Settings(
             database_url="sqlite+pysqlite:///:memory:",

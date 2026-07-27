@@ -3,7 +3,11 @@ from typing import cast
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
-from backend.app.audit.domain.entities import AgentLifecycleEvent, NetworkAuditEvent
+from backend.app.audit.domain.entities import (
+    AgentLifecycleEvent,
+    AgentLifecycleEventType,
+    NetworkAuditEvent,
+)
 from backend.app.audit.domain.repositories import (
     AgentLifecycleEventFilters,
     NetworkAuditEventFilters,
@@ -72,7 +76,7 @@ def _network_domain_to_model(event: NetworkAuditEvent) -> NetworkAuditEventModel
 def _lifecycle_model_to_domain(model: AgentLifecycleEventModel) -> AgentLifecycleEvent:
     return AgentLifecycleEvent(
         event_id=model.event_id,
-        event_type=model.event_type,
+        event_type=AgentLifecycleEventType(model.event_type),
         occurred_at=model.occurred_at,
         device_id=model.device_id,
         hostname=model.hostname,

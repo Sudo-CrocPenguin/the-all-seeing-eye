@@ -7,7 +7,11 @@ from backend.app.audit.application.ingest_lifecycle_event import (
     IngestAgentLifecycleEventCommand,
 )
 from backend.app.audit.application.ingest_network_event import IngestNetworkAuditEventCommand
-from backend.app.audit.domain.entities import AgentLifecycleEvent, NetworkAuditEvent
+from backend.app.audit.domain.entities import (
+    AgentLifecycleEvent,
+    AgentLifecycleEventType,
+    NetworkAuditEvent,
+)
 
 
 class AgentLifecycleEventTypeRequest(StrEnum):
@@ -130,7 +134,7 @@ class AgentLifecycleEventRequest(BaseModel):
 
     def to_command(self, observed_public_ip: str | None = None) -> IngestAgentLifecycleEventCommand:
         return IngestAgentLifecycleEventCommand(
-            event_type=self.event_type,
+            event_type=AgentLifecycleEventType(self.event_type.value),
             occurred_at=self.occurred_at,
             device_id=self.device_id,
             hostname=self.hostname,
@@ -176,4 +180,3 @@ class AgentLifecycleEventResponse(BaseModel):
             downtime_seconds=event.downtime_seconds,
             created_at=event.created_at,
         )
-
