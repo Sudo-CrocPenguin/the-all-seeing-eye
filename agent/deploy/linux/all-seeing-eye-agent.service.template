@@ -1,0 +1,22 @@
+[Unit]
+Description=The All Seeing Eye Agent
+Documentation=file:{{INSTALL_DIR}}/agent/docs/agent.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile={{ENV_FILE}}
+WorkingDirectory={{INSTALL_DIR}}
+ExecStart={{INSTALL_DIR}}/.venv/bin/python -m agent.app.cli
+Restart=always
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStopSec=30
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
