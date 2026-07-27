@@ -1,9 +1,12 @@
 import argparse
 import json
+import sys
 from dataclasses import asdict
 
 from agent.app.config import AgentSettings
 from agent.app.device_identity import DeviceIdentityCollector
+from agent.app.runner import AgentRunner
+from agent.app.transport import AgentTransportError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -58,10 +61,15 @@ def main() -> None:
         return
 
     if args.once:
-        print(f"Agente configurado para {settings.backend_url}")
+        AgentRunner(settings).run_once()
+        print(f"Agente ejecuto un ciclo contra {settings.backend_url}")
         return
 
-    print(f"Agente configurado para {settings.backend_url}")
+    try:
+        AgentRunner(settings).run_forever()
+    except AgentTransportError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":
