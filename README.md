@@ -255,7 +255,43 @@ La plataforma debe implementar controles de proteccion desde el inicio:
 
 ## Estado Actual
 
-El proyecto se encuentra en etapa de MVP. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. El agente MVP puede identificar el equipo, reportar ciclo de vida y enviar conexiones salientes basicas.
+El proyecto se encuentra en etapa de MVP. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes basicas y desplegarse como servicio administrado en Linux/Windows.
+
+## Despliegue Del Agente Como Servicio
+
+El agente esta preparado para ejecutarse en segundo plano como servicio corporativo visible y administrable por IT. Esta capacidad sirve para que el proceso arranque con el sistema operativo, se reinicie ante fallos y registre eventos de apagado/encendido cuando el servicio se detiene de forma controlada.
+
+En Linux se usa systemd:
+
+```bash
+sudo agent/deploy/linux/install-systemd.sh
+sudo systemctl status all-seeing-eye-agent
+sudo systemctl stop all-seeing-eye-agent
+sudo systemctl start all-seeing-eye-agent
+```
+
+La configuracion queda en:
+
+```text
+/etc/the-all-seeing-eye/agent.env
+```
+
+En Windows se usa Windows Service con `pywin32`:
+
+```powershell
+.\agent\deploy\windows\install-service.ps1 -BackendUrl "http://backend:8000" -AgentToken "token"
+Get-Service -Name AllSeeingEyeAgent
+Stop-Service -Name AllSeeingEyeAgent
+Start-Service -Name AllSeeingEyeAgent
+```
+
+La configuracion queda en:
+
+```text
+C:\ProgramData\TheAllSeeingEye\agent.env
+```
+
+Cuando el servicio se detiene con `systemctl stop`, `Stop-Service` o la consola de servicios de Windows, el agente envia `AGENT_STOPPING` y `AGENT_STOPPED`. Cuando vuelve a iniciar envia `AGENT_STARTED`. Si el proceso es terminado de forma forzada o el equipo pierde red/energia, el backend debe detectar la ventana sin reporte mediante heartbeats ausentes.
 
 ## Documentacion Tecnica
 
