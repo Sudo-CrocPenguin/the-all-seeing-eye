@@ -1,12 +1,21 @@
 from dataclasses import dataclass
 from datetime import datetime
-from socket import SOCK_DGRAM, SOCK_STREAM
+from socket import SOCK_DGRAM, SOCK_STREAM, gethostbyaddr
 from typing import Any
 
 import psutil
 
 from agent.app.clock import to_iso, utc_now
 from agent.app.device_identity import DeviceIdentity, NetworkInterface
+from agent.app.service_map import ServiceMap
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessInfo:
+    process_id: int | None = None
+    process_name: str | None = None
+    process_executable: str | None = None
+    username: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +29,12 @@ class ObservedNetworkConnection:
     status: str | None
     network_interface: str | None
     mac_address: str | None
+    destination_host: str | None = None
+    service_name: str | None = None
+    local_username: str | None = None
+    process_id: int | None = None
+    process_name: str | None = None
+    process_executable: str | None = None
 
     @property
     def signature(self) -> str:
@@ -42,12 +57,18 @@ class ObservedNetworkConnection:
             "agent_version": identity.agent_version,
             "protocol": self.protocol,
             "local_ip": self.local_ip,
+            "destination_host": self.destination_host,
             "destination_ip": self.destination_ip,
             "destination_port": self.destination_port,
             "bytes_sent": 0,
             "bytes_received": 0,
             "network_interface": self.network_interface,
             "mac_address": self.mac_address,
+            "local_username": self.local_username,
+            "process_id": self.process_id,
+            "process_name": self.process_name,
+            "process_executable": self.process_executable,
+            "service_name": self.service_name,
             "request_metadata": {
                 "local_port": str(self.local_port or ""),
                 "connection_status": self.status or "",
@@ -59,6 +80,10 @@ class ObservedNetworkConnection:
 
 
 class NetworkConnectionCollector:
+    def __init__(self, service_map: ServiceMap | None = None) -> None:
+        self._service_map = service_map or ServiceMap()
+        self._reverse_dns_cache: dict[str, str | None] = {}
+
     def collect(self, identity: DeviceIdentity) -> list[ObservedNetworkConnection]:
         try:
             raw_connections = psutil.net_connections(kind="inet")
@@ -67,6 +92,7 @@ class NetworkConnectionCollector:
 
         observed_at = utc_now()
         connections: list[ObservedNetworkConnection] = []
+        active_username = self._active_username()
         for raw_connection in raw_connections:
             destination_ip = self._address_host(raw_connection.raddr)
             destination_port = self._address_port(raw_connection.raddr)
@@ -78,6 +104,13 @@ class NetworkConnectionCollector:
             interface = self._find_interface(identity, local_ip)
             interface_name = interface.name if interface else identity.primary_interface_name
             mac_address = interface.mac_address if interface else identity.primary_mac_address
+            process_info = self._process_info(getattr(raw_connection, "pid", None))
+            service_entry = self._service_map.find(destination_ip, destination_port)
+            destination_host = (
+                service_entry.destination_host
+                if service_entry and service_entry.destination_host
+                else self._reverse_dns(destination_ip)
+            )
             connections.append(
                 ObservedNetworkConnection(
                     occurred_at=observed_at,
@@ -89,6 +122,12 @@ class NetworkConnectionCollector:
                     status=getattr(raw_connection, "status", None) or None,
                     network_interface=interface_name,
                     mac_address=mac_address,
+                    destination_host=destination_host,
+                    service_name=service_entry.name if service_entry else None,
+                    local_username=process_info.username or active_username,
+                    process_id=process_info.process_id,
+                    process_name=process_info.process_name,
+                    process_executable=process_info.process_executable,
                 ),
             )
 
@@ -105,6 +144,47 @@ class NetworkConnectionCollector:
             host = address[0]
             return host if isinstance(host, str) else None
         return None
+
+    @staticmethod
+    def _process_info(process_id: int | None) -> ProcessInfo:
+        if process_id is None:
+            return ProcessInfo()
+
+        try:
+            process = psutil.Process(process_id)
+            return ProcessInfo(
+                process_id=process_id,
+                process_name=process.name() or None,
+                process_executable=process.exe() or None,
+                username=process.username() or None,
+            )
+        except (OSError, psutil.Error):
+            return ProcessInfo(process_id=process_id)
+
+    @staticmethod
+    def _active_username() -> str | None:
+        try:
+            users = psutil.users()
+        except OSError:
+            return None
+        if not users:
+            return None
+        username = getattr(users[0], "name", None)
+        return username if isinstance(username, str) and username else None
+
+    def _reverse_dns(self, destination_ip: str | None) -> str | None:
+        if destination_ip is None:
+            return None
+        if destination_ip in self._reverse_dns_cache:
+            return self._reverse_dns_cache[destination_ip]
+
+        try:
+            hostname = gethostbyaddr(destination_ip)[0]
+        except OSError:
+            hostname = None
+
+        self._reverse_dns_cache[destination_ip] = hostname
+        return hostname
 
     @staticmethod
     def _address_port(address: Any) -> int | None:

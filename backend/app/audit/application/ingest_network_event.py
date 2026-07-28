@@ -25,6 +25,11 @@ class IngestNetworkAuditEventCommand:
     bytes_received: int = 0
     network_interface: str | None = None
     mac_address: str | None = None
+    local_username: str | None = None
+    process_id: int | None = None
+    process_name: str | None = None
+    process_executable: str | None = None
+    service_name: str | None = None
     request_metadata: dict[str, str] = field(default_factory=dict)
     response_metadata: dict[str, str] = field(default_factory=dict)
 
@@ -53,8 +58,12 @@ class IngestNetworkAuditEventUseCase:
             bytes_received=command.bytes_received,
             network_interface=command.network_interface,
             mac_address=command.mac_address,
+            local_username=command.local_username,
+            process_id=command.process_id,
+            process_name=command.process_name,
+            process_executable=command.process_executable,
+            service_name=command.service_name,
             request_metadata=command.request_metadata,
             response_metadata=command.response_metadata,
         )
         return self._repository.save(event)
-

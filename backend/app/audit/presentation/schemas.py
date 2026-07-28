@@ -42,6 +42,11 @@ class NetworkAuditEventRequest(BaseModel):
     bytes_received: int = 0
     network_interface: str | None = None
     mac_address: str | None = None
+    local_username: str | None = None
+    process_id: int | None = None
+    process_name: str | None = None
+    process_executable: str | None = None
+    service_name: str | None = None
     request_metadata: dict[str, str] = Field(default_factory=dict)
     response_metadata: dict[str, str] = Field(default_factory=dict)
 
@@ -64,6 +69,11 @@ class NetworkAuditEventRequest(BaseModel):
             bytes_received=self.bytes_received,
             network_interface=self.network_interface,
             mac_address=self.mac_address,
+            local_username=self.local_username,
+            process_id=self.process_id,
+            process_name=self.process_name,
+            process_executable=self.process_executable,
+            service_name=self.service_name,
             request_metadata=self.request_metadata,
             response_metadata=self.response_metadata,
         )
@@ -88,6 +98,11 @@ class NetworkAuditEventResponse(BaseModel):
     bytes_received: int
     network_interface: str | None
     mac_address: str | None
+    local_username: str | None
+    process_id: int | None
+    process_name: str | None
+    process_executable: str | None
+    service_name: str | None
     request_metadata: dict[str, str]
     response_metadata: dict[str, str]
     created_at: datetime
@@ -113,6 +128,11 @@ class NetworkAuditEventResponse(BaseModel):
             bytes_received=event.bytes_received,
             network_interface=event.network_interface,
             mac_address=event.mac_address,
+            local_username=event.local_username,
+            process_id=event.process_id,
+            process_name=event.process_name,
+            process_executable=event.process_executable,
+            service_name=event.service_name,
             request_metadata=event.request_metadata,
             response_metadata=event.response_metadata,
             created_at=event.created_at,

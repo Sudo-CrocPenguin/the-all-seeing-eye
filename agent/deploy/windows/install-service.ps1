@@ -33,6 +33,7 @@ py -3 -m venv (Join-Path $InstallDir ".venv")
 
 $envFile = Join-Path $ConfigDir "agent.env"
 $queueFile = Join-Path $ConfigDir "agent-queue.jsonl"
+$serviceMapFile = Join-Path $ConfigDir "service-map.json"
 @(
     "AGENT_BACKEND_URL=$BackendUrl",
     "AGENT_DEVICE_ID=$DeviceId",
@@ -43,7 +44,8 @@ $queueFile = Join-Path $ConfigDir "agent-queue.jsonl"
     "AGENT_NETWORK_EVENT_DEDUP_SECONDS=300",
     "AGENT_REQUEST_TIMEOUT_SECONDS=10",
     "AGENT_REQUEST_RETRY_BACKOFF_SECONDS=30",
-    "AGENT_QUEUE_FILE=$queueFile"
+    "AGENT_QUEUE_FILE=$queueFile",
+    "AGENT_SERVICE_MAP_FILE=$serviceMapFile"
 ) | Set-Content -Path $envFile -Encoding UTF8
 
 & $python -m agent.app.windows_service install --startup auto

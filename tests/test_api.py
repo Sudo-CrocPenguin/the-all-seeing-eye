@@ -116,6 +116,11 @@ async def test_ingest_and_search_network_events() -> None:
                 "bytes_received": 2048,
                 "network_interface": "eth0",
                 "mac_address": "00:11:22:33:44:55",
+                "local_username": "dev-user",
+                "process_id": 4242,
+                "process_name": "psql",
+                "process_executable": "/usr/bin/psql",
+                "service_name": "Base de datos produccion",
             },
         )
 
@@ -123,6 +128,11 @@ async def test_ingest_and_search_network_events() -> None:
         body = response.json()
         assert body["protocol"] == "HTTPS"
         assert body["http_method"] == "GET"
+        assert body["local_username"] == "dev-user"
+        assert body["process_id"] == 4242
+        assert body["process_name"] == "psql"
+        assert body["process_executable"] == "/usr/bin/psql"
+        assert body["service_name"] == "Base de datos produccion"
 
         search_response = await client.get(
             "/api/v1/audit/network-events",

@@ -10,6 +10,7 @@ from agent.app.config import AgentSettings
 from agent.app.device_identity import DeviceIdentity, DeviceIdentityCollector
 from agent.app.local_queue import QueuedAuditApiClient
 from agent.app.network_collector import NetworkConnectionCollector, ObservedNetworkConnection
+from agent.app.service_map import ServiceMap
 from agent.app.transport import AuditApiClient
 
 
@@ -68,7 +69,9 @@ class AgentRunner:
     ) -> None:
         self._settings = settings
         self._identity_collector = identity_collector or DeviceIdentityCollector(settings)
-        self._network_collector = network_collector or NetworkConnectionCollector()
+        self._network_collector = network_collector or NetworkConnectionCollector(
+            ServiceMap.from_file(settings.service_map_file),
+        )
         self._api_client = api_client or self._build_api_client(settings)
         self._stop_requested = stop_signal or Event()
         self._monotonic_clock = monotonic_clock or monotonic
