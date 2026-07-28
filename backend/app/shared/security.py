@@ -25,6 +25,21 @@ def require_provisioning_token(request: Request, settings: Settings) -> None:
         )
 
 
+def require_auditor_token(request: Request, settings: Settings) -> None:
+    if not settings.auditor_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Las consultas de auditoria no estan habilitadas",
+        )
+
+    supplied_token = request.headers.get(settings.auditor_token_header)
+    if supplied_token is None or not compare_digest(supplied_token, settings.auditor_token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token de auditoria invalido",
+        )
+
+
 def require_agent_token(
     request: Request,
     settings: Settings,

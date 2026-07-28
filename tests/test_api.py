@@ -8,6 +8,7 @@ from backend.app.main import create_app
 from backend.app.shared.config import Settings
 
 PROVISIONING_TOKEN = "test-provisioning-token"
+AUDITOR_TOKEN = "test-auditor-token"
 
 
 def create_test_app() -> FastAPI:
@@ -15,6 +16,7 @@ def create_test_app() -> FastAPI:
         settings=Settings(
             database_url="sqlite+pysqlite:///:memory:",
             persistence_backend="sqlalchemy",
+            auditor_token=AUDITOR_TOKEN,
             provisioning_token=PROVISIONING_TOKEN,
         ),
         create_schema=True,
@@ -60,6 +62,10 @@ async def register_test_device(
     return body
 
 
+def auditor_headers() -> dict[str, str]:
+    return {"X-Auditor-Token": AUDITOR_TOKEN}
+
+
 @pytest.mark.anyio
 async def test_health_check() -> None:
     transport = httpx.ASGITransport(app=create_test_app())
@@ -79,7 +85,7 @@ async def test_register_and_list_devices() -> None:
 
         assert body["device_id"] == "device-1"
 
-        list_response = await client.get("/api/v1/devices")
+        list_response = await client.get("/api/v1/devices", headers=auditor_headers())
         assert list_response.status_code == 200
         assert len(list_response.json()) == 1
 
@@ -120,6 +126,7 @@ async def test_ingest_and_search_network_events() -> None:
 
         search_response = await client.get(
             "/api/v1/audit/network-events",
+            headers=auditor_headers(),
             params={"device_id": "device-1", "protocol": "https"},
         )
         assert search_response.status_code == 200
@@ -157,7 +164,7 @@ async def test_network_event_updates_device_last_seen_at(
         )
         assert response.status_code == 201
 
-        list_response = await client.get("/api/v1/devices")
+        list_response = await client.get("/api/v1/devices", headers=auditor_headers())
         assert list_response.status_code == 200
         assert datetime.fromisoformat(list_response.json()[0]["last_seen_at"]) == seen_at
 
@@ -189,6 +196,7 @@ async def test_ingest_and_search_lifecycle_events() -> None:
 
         search_response = await client.get(
             "/api/v1/audit/lifecycle-events",
+            headers=auditor_headers(),
             params={"device_id": "device-1", "event_type": "AGENT_MISSED_HEARTBEAT"},
         )
         assert search_response.status_code == 200
@@ -223,7 +231,7 @@ async def test_lifecycle_heartbeat_updates_device_last_seen_at(
         )
         assert response.status_code == 201
 
-        list_response = await client.get("/api/v1/devices")
+        list_response = await client.get("/api/v1/devices", headers=auditor_headers())
         assert list_response.status_code == 200
         assert datetime.fromisoformat(list_response.json()[0]["last_seen_at"]) == seen_at
 
@@ -345,6 +353,7 @@ async def test_heartbeat_after_missed_heartbeat_records_recovery(
         assert heartbeat_response.status_code == 201
         recovered_response = await client.get(
             "/api/v1/audit/lifecycle-events",
+            headers=auditor_headers(),
             params={"device_id": "device-1", "event_type": "AGENT_RECOVERED"},
         )
         assert recovered_response.status_code == 200
@@ -354,7 +363,7 @@ async def test_heartbeat_after_missed_heartbeat_records_recovery(
         assert recovered_events[0]["detected_at"] == "2026-07-27T15:05:00Z"
         assert recovered_events[0]["downtime_seconds"] == 300
 
-        list_response = await client.get("/api/v1/devices")
+        list_response = await client.get("/api/v1/devices", headers=auditor_headers())
         assert list_response.status_code == 200
         assert datetime.fromisoformat(list_response.json()[0]["last_seen_at"]) == recovered_at
 
@@ -386,6 +395,19 @@ async def test_agent_writes_require_valid_token() -> None:
             },
         )
         assert invalid_token_response.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_audit_queries_require_auditor_token() -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        devices_response = await client.get("/api/v1/devices")
+        network_events_response = await client.get("/api/v1/audit/network-events")
+        lifecycle_events_response = await client.get("/api/v1/audit/lifecycle-events")
+
+    assert devices_response.status_code == 401
+    assert network_events_response.status_code == 401
+    assert lifecycle_events_response.status_code == 401
 
 
 @pytest.mark.anyio

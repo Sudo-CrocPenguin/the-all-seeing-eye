@@ -27,6 +27,8 @@ AGENT_HEARTBEAT_INTERVAL_SECONDS=60
 AGENT_SCAN_INTERVAL_SECONDS=15
 AGENT_NETWORK_EVENT_DEDUP_SECONDS=300
 AGENT_REQUEST_TIMEOUT_SECONDS=10
+AGENT_REQUEST_RETRY_BACKOFF_SECONDS=30
+AGENT_QUEUE_FILE=
 ```
 
 `AGENT_DEVICE_ID` puede quedar vacio. En ese caso el agente genera un identificador estable a partir de datos tecnicos del equipo.
@@ -39,6 +41,37 @@ AGENT_REQUEST_TIMEOUT_SECONDS=10
 /etc/the-all-seeing-eye/agent.env
 C:\ProgramData\TheAllSeeingEye\agent.env
 ```
+
+## Cola Local Y Reintentos
+
+### Que Es
+
+Es una cola local en formato JSONL donde el agente guarda eventos que no pudo entregar al backend por caidas temporales de red o indisponibilidad del servidor.
+
+### Para Que Sirve
+
+- Evitar perder eventos cuando el backend no responde.
+- Permitir que el agente siga corriendo aunque una solicitud falle.
+- Reenviar eventos pendientes cuando el backend vuelve a estar disponible.
+
+### Como Funciona
+
+Cada solicitud al backend intenta vaciar primero la cola pendiente. Si el envio actual falla, el agente guarda la solicitud completa con su ruta y payload en `AGENT_QUEUE_FILE`.
+
+El intervalo minimo entre reintentos de vaciado se configura con:
+
+```text
+AGENT_REQUEST_RETRY_BACKOFF_SECONDS=30
+```
+
+Rutas recomendadas para servicio:
+
+```text
+/var/lib/the-all-seeing-eye/agent-queue.jsonl
+C:\ProgramData\TheAllSeeingEye\agent-queue.jsonl
+```
+
+El agente usa esta cola para registro del dispositivo, eventos de ciclo de vida y eventos de red.
 
 ## Ejecucion
 

@@ -14,6 +14,10 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw "Este instalador debe ejecutarse como administrador."
 }
 
+if ([string]::IsNullOrWhiteSpace($AgentToken)) {
+    throw "AgentToken es obligatorio para instalar e iniciar el servicio."
+}
+
 $sourceDir = Resolve-Path (Join-Path $PSScriptRoot "..\..\..")
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
@@ -28,6 +32,7 @@ py -3 -m venv (Join-Path $InstallDir ".venv")
 & $python -m pip install -e "$InstallDir[windows-service]"
 
 $envFile = Join-Path $ConfigDir "agent.env"
+$queueFile = Join-Path $ConfigDir "agent-queue.jsonl"
 @(
     "AGENT_BACKEND_URL=$BackendUrl",
     "AGENT_DEVICE_ID=$DeviceId",
@@ -36,7 +41,9 @@ $envFile = Join-Path $ConfigDir "agent.env"
     "AGENT_HEARTBEAT_INTERVAL_SECONDS=$HeartbeatIntervalSeconds",
     "AGENT_SCAN_INTERVAL_SECONDS=$ScanIntervalSeconds",
     "AGENT_NETWORK_EVENT_DEDUP_SECONDS=300",
-    "AGENT_REQUEST_TIMEOUT_SECONDS=10"
+    "AGENT_REQUEST_TIMEOUT_SECONDS=10",
+    "AGENT_REQUEST_RETRY_BACKOFF_SECONDS=30",
+    "AGENT_QUEUE_FILE=$queueFile"
 ) | Set-Content -Path $envFile -Encoding UTF8
 
 & $python -m agent.app.windows_service install --startup auto

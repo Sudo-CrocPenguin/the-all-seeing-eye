@@ -11,6 +11,38 @@ class AgentTransportError(RuntimeError):
     pass
 
 
+def build_device_registration_payload(identity: DeviceIdentity) -> dict[str, Any]:
+    return {
+        "device_id": identity.device_id,
+        "hostname": identity.hostname,
+        "os_name": identity.os_name,
+        "agent_version": identity.agent_version,
+        "metadata": {
+            "interfaces": json.dumps(
+                [asdict(interface) for interface in identity.interfaces],
+            ),
+        },
+    }
+
+
+def build_lifecycle_event_payload(
+    identity: DeviceIdentity,
+    event_type: str,
+    occurred_at: str,
+    *,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "event_type": event_type,
+        "occurred_at": occurred_at,
+        "device_id": identity.device_id,
+        "hostname": identity.hostname,
+        "agent_version": identity.agent_version,
+        "local_ip": identity.primary_local_ip,
+        "reason": reason,
+    }
+
+
 class AuditApiClient:
     def __init__(
         self,
@@ -26,20 +58,7 @@ class AuditApiClient:
         self._timeout_seconds = timeout_seconds
 
     def register_device(self, identity: DeviceIdentity) -> dict[str, Any]:
-        return self._post_json(
-            "/api/v1/devices",
-            {
-                "device_id": identity.device_id,
-                "hostname": identity.hostname,
-                "os_name": identity.os_name,
-                "agent_version": identity.agent_version,
-                "metadata": {
-                    "interfaces": json.dumps(
-                        [asdict(interface) for interface in identity.interfaces],
-                    ),
-                },
-            },
-        )
+        return self.post_json("/api/v1/devices", build_device_registration_payload(identity))
 
     def send_lifecycle_event(
         self,
@@ -49,23 +68,20 @@ class AuditApiClient:
         *,
         reason: str | None = None,
     ) -> dict[str, Any]:
-        return self._post_json(
+        return self.post_json(
             "/api/v1/audit/lifecycle-events",
-            {
-                "event_type": event_type,
-                "occurred_at": occurred_at,
-                "device_id": identity.device_id,
-                "hostname": identity.hostname,
-                "agent_version": identity.agent_version,
-                "local_ip": identity.primary_local_ip,
-                "reason": reason,
-            },
+            build_lifecycle_event_payload(
+                identity,
+                event_type,
+                occurred_at,
+                reason=reason,
+            ),
         )
 
     def send_network_event(self, payload: dict[str, object]) -> dict[str, Any]:
-        return self._post_json("/api/v1/audit/network-events", payload)
+        return self.post_json("/api/v1/audit/network-events", payload)
 
-    def _post_json(self, path: str, payload: dict[str, Any] | dict[str, object]) -> dict[str, Any]:
+    def post_json(self, path: str, payload: dict[str, Any] | dict[str, object]) -> dict[str, Any]:
         body = json.dumps(payload).encode()
         request = Request(
             url=f"{self._backend_url}{path}",

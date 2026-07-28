@@ -24,6 +24,8 @@ class AgentSettings:
     scan_interval_seconds: int = 15
     network_event_dedup_seconds: int = 300
     request_timeout_seconds: int = 10
+    request_retry_backoff_seconds: int = 30
+    queue_file: Path = Path.home() / ".local/state/the-all-seeing-eye/agent-queue.jsonl"
 
     @classmethod
     def from_environment(cls, env_file: str | Path | None = None) -> "AgentSettings":
@@ -41,6 +43,13 @@ class AgentSettings:
             scan_interval_seconds=_get_int("AGENT_SCAN_INTERVAL_SECONDS", 15),
             network_event_dedup_seconds=_get_int("AGENT_NETWORK_EVENT_DEDUP_SECONDS", 300),
             request_timeout_seconds=_get_int("AGENT_REQUEST_TIMEOUT_SECONDS", 10),
+            request_retry_backoff_seconds=_get_int("AGENT_REQUEST_RETRY_BACKOFF_SECONDS", 30),
+            queue_file=Path(
+                getenv(
+                    "AGENT_QUEUE_FILE",
+                    str(Path.home() / ".local/state/the-all-seeing-eye/agent-queue.jsonl"),
+                ),
+            ),
         )
 
 

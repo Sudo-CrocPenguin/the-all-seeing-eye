@@ -22,3 +22,13 @@ def test_windows_installer_uses_visible_service_wrapper() -> None:
     assert "agent.app.windows_service" in installer
     assert "AllSeeingEyeAgent" in installer
     assert "AGENT_TOKEN=$AgentToken" in installer
+    assert "AgentToken es obligatorio" in installer
+
+
+def test_linux_installer_does_not_start_without_agent_token() -> None:
+    installer = (ROOT_DIR / "agent/deploy/linux/install-systemd.sh").read_text(
+        encoding="utf-8",
+    )
+
+    assert "AGENT_TOKEN no esta configurado" in installer
+    assert "systemctl restart" in installer

@@ -4,6 +4,7 @@ set -euo pipefail
 SERVICE_NAME="${SERVICE_NAME:-all-seeing-eye-agent}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/the-all-seeing-eye}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/the-all-seeing-eye}"
+STATE_DIR="${STATE_DIR:-/var/lib/the-all-seeing-eye}"
 ENV_FILE="${ENV_FILE:-${CONFIG_DIR}/agent.env}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -17,6 +18,7 @@ fi
 
 install -d -m 0755 "${INSTALL_DIR}"
 install -d -m 0750 "${CONFIG_DIR}"
+install -d -m 0750 "${STATE_DIR}"
 
 if command -v rsync >/dev/null 2>&1; then
   rsync -a --delete \
@@ -47,5 +49,11 @@ sed \
 chmod 0644 "${UNIT_FILE}"
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}"
+
+if ! grep -Eq '^AGENT_TOKEN=.+$' "${ENV_FILE}"; then
+  echo "AGENT_TOKEN no esta configurado en ${ENV_FILE}; el servicio quedo habilitado pero no se inicio." >&2
+  exit 0
+fi
+
 systemctl restart "${SERVICE_NAME}"
 systemctl status "${SERVICE_NAME}" --no-pager

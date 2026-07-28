@@ -129,6 +129,31 @@ POST /api/v1/audit/lifecycle-events
 
 El token no se guarda en claro. El backend guarda hash y sal en la tabla `agent_credentials`.
 
+## Consultas De Auditoria
+
+Las consultas operativas requieren un token de auditoria separado del token de provisionamiento:
+
+```text
+X-Auditor-Token: <token-de-auditoria>
+```
+
+Configurar el token en el backend:
+
+```text
+AUDITOR_TOKEN=valor-de-auditoria-seguro
+AUDITOR_TOKEN_HEADER=X-Auditor-Token
+```
+
+Los endpoints protegidos son:
+
+```text
+GET /api/v1/devices
+GET /api/v1/audit/network-events
+GET /api/v1/audit/lifecycle-events
+```
+
+Este token sirve para revisar historicos sin conceder permisos de provisionamiento de agentes.
+
 ### Provisionar Token
 
 Para crear o rotar un token de agente se usa el endpoint de provision protegido por token administrativo:

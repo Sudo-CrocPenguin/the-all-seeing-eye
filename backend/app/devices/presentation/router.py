@@ -14,7 +14,11 @@ from backend.app.devices.presentation.schemas import (
 )
 from backend.app.shared.container import AppContainer
 from backend.app.shared.dependencies import get_container
-from backend.app.shared.security import require_agent_token, require_provisioning_token
+from backend.app.shared.security import (
+    require_agent_token,
+    require_auditor_token,
+    require_provisioning_token,
+)
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
@@ -54,6 +58,8 @@ async def register_device(
 
 @router.get("", response_model=list[DeviceResponse])
 async def list_devices(
+    request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
 ) -> list[DeviceResponse]:
+    require_auditor_token(request, request.app.state.container.settings)
     return [DeviceResponse.from_domain(device) for device in container.device_repository.list_all()]
