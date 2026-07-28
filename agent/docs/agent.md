@@ -183,8 +183,10 @@ Es un Windows Service basado en `pywin32` que ejecuta el mismo runner del agente
 Instalar desde PowerShell como administrador:
 
 ```powershell
-.\agent\deploy\windows\install-service.ps1 -BackendUrl "http://backend:8000" -AgentToken "token-del-agente"
+.\agent\deploy\windows\install-service.ps1 -BackendUrl "https://audit.empresa.local" -AgentToken "token-del-agente"
 ```
+
+Para laboratorio con HTTP hacia una IP LAN/VPN, configura `AGENT_ALLOW_INSECURE_TRANSPORT=true` en `C:\ProgramData\TheAllSeeingEye\agent.env`. Ese override no debe usarse para un piloto expuesto fuera de red controlada.
 
 Operar el servicio:
 

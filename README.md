@@ -295,11 +295,13 @@ La configuracion queda en:
 En Windows se usa Windows Service con `pywin32`:
 
 ```powershell
-.\agent\deploy\windows\install-service.ps1 -BackendUrl "http://backend:8000" -AgentToken "token"
+.\agent\deploy\windows\install-service.ps1 -BackendUrl "https://audit.empresa.local" -AgentToken "token"
 Get-Service -Name AllSeeingEyeAgent
 Stop-Service -Name AllSeeingEyeAgent
 Start-Service -Name AllSeeingEyeAgent
 ```
+
+Para laboratorio con HTTP hacia LAN/VPN se debe configurar `AGENT_ALLOW_INSECURE_TRANSPORT=true` y documentar el riesgo. El agente solo permite HTTP por defecto contra `127.0.0.1` o `localhost`.
 
 La configuracion queda en:
 

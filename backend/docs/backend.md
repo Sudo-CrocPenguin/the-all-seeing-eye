@@ -258,6 +258,8 @@ MISSED_HEARTBEAT_SCHEDULER_ENABLED=true
 MISSED_HEARTBEAT_SCHEDULER_INTERVAL_SECONDS=60
 ```
 
+Este scheduler corre dentro del proceso FastAPI. Para `0.1.0-beta.1`, si `MISSED_HEARTBEAT_SCHEDULER_ENABLED=true`, despliega el backend con un solo worker. Con varios workers se iniciaria un scheduler por proceso; antes de escalar, mueve este detector a un job singleton externo.
+
 El detector se ejecuta con un endpoint administrativo protegido por `X-Provisioning-Token`:
 
 ```bash
