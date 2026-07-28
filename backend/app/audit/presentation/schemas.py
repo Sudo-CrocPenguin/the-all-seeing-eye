@@ -7,6 +7,10 @@ from backend.app.audit.application.ingest_lifecycle_event import (
     IngestAgentLifecycleEventCommand,
 )
 from backend.app.audit.application.ingest_network_event import IngestNetworkAuditEventCommand
+from backend.app.audit.application.query_incident_window import (
+    IncidentDeviceStatus,
+    IncidentWindow,
+)
 from backend.app.audit.domain.entities import (
     AgentLifecycleEvent,
     AgentLifecycleEventType,
@@ -199,4 +203,63 @@ class AgentLifecycleEventResponse(BaseModel):
             detected_at=event.detected_at,
             downtime_seconds=event.downtime_seconds,
             created_at=event.created_at,
+        )
+
+
+class IncidentDeviceStatusResponse(BaseModel):
+    device_id: str
+    hostname: str
+    os_name: str | None
+    agent_version: str | None
+    registered_at: datetime | None
+    last_seen_at: datetime | None
+    status: str
+
+    @classmethod
+    def from_result(cls, result: IncidentDeviceStatus) -> "IncidentDeviceStatusResponse":
+        return cls(
+            device_id=result.device_id,
+            hostname=result.hostname,
+            os_name=result.os_name,
+            agent_version=result.agent_version,
+            registered_at=result.registered_at,
+            last_seen_at=result.last_seen_at,
+            status=result.status,
+        )
+
+
+class IncidentWindowResponse(BaseModel):
+    from_datetime: datetime
+    to_datetime: datetime
+    active_devices: list[IncidentDeviceStatusResponse]
+    devices_without_report: list[IncidentDeviceStatusResponse]
+    devices_seen_after_window: list[IncidentDeviceStatusResponse]
+    network_events: list[NetworkAuditEventResponse]
+    lifecycle_events: list[AgentLifecycleEventResponse]
+
+    @classmethod
+    def from_result(cls, result: IncidentWindow) -> "IncidentWindowResponse":
+        return cls(
+            from_datetime=result.from_datetime,
+            to_datetime=result.to_datetime,
+            active_devices=[
+                IncidentDeviceStatusResponse.from_result(device)
+                for device in result.active_devices
+            ],
+            devices_without_report=[
+                IncidentDeviceStatusResponse.from_result(device)
+                for device in result.devices_without_report
+            ],
+            devices_seen_after_window=[
+                IncidentDeviceStatusResponse.from_result(device)
+                for device in result.devices_seen_after_window
+            ],
+            network_events=[
+                NetworkAuditEventResponse.from_domain(event)
+                for event in result.network_events
+            ],
+            lifecycle_events=[
+                AgentLifecycleEventResponse.from_domain(event)
+                for event in result.lifecycle_events
+            ],
         )
