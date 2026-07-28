@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     persistence_backend: Literal["memory", "sqlalchemy"] = "sqlalchemy"
     agent_heartbeat_timeout_seconds: int = 180
     agent_token_header: str = "X-Agent-Token"
+    auditor_token: str | None = None
+    auditor_token_header: str = "X-Auditor-Token"
     provisioning_token: str | None = None
     provisioning_token_header: str = "X-Provisioning-Token"
 

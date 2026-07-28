@@ -29,7 +29,11 @@ from backend.app.audit.presentation.schemas import (
 )
 from backend.app.shared.container import AppContainer
 from backend.app.shared.dependencies import get_container
-from backend.app.shared.security import require_agent_token, require_provisioning_token
+from backend.app.shared.security import (
+    require_agent_token,
+    require_auditor_token,
+    require_provisioning_token,
+)
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 
@@ -109,6 +113,7 @@ async def ingest_network_event(
 
 @router.get("/network-events", response_model=list[NetworkAuditEventResponse])
 async def search_network_events(
+    request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
     device_id: str | None = None,
     local_ip: str | None = None,
@@ -120,6 +125,7 @@ async def search_network_events(
     to_datetime: ToDateTimeQuery = None,
     limit: LimitQuery = 100,
 ) -> list[NetworkAuditEventResponse]:
+    require_auditor_token(request, request.app.state.container.settings)
     filters = NetworkAuditEventFilters(
         device_id=device_id,
         local_ip=local_ip,
@@ -193,6 +199,7 @@ async def detect_missed_heartbeats(
 
 @router.get("/lifecycle-events", response_model=list[AgentLifecycleEventResponse])
 async def search_lifecycle_events(
+    request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
     device_id: str | None = None,
     event_type: str | None = None,
@@ -200,6 +207,7 @@ async def search_lifecycle_events(
     to_datetime: ToDateTimeQuery = None,
     limit: LimitQuery = 100,
 ) -> list[AgentLifecycleEventResponse]:
+    require_auditor_token(request, request.app.state.container.settings)
     filters = AgentLifecycleEventFilters(
         device_id=device_id,
         event_type=event_type,
