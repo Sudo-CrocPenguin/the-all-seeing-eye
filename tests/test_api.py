@@ -333,7 +333,7 @@ async def test_query_incident_window_accepts_exact_timestamp(
             "/api/v1/audit/incident-window",
             headers=auditor_headers(),
             params={
-                "at": reported_at.isoformat(),
+                "at": "2026-07-27T09:03:00-05:00",
                 "window_seconds": 120,
             },
         )
