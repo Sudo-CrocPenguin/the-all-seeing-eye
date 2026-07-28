@@ -7,6 +7,7 @@ from backend.app.audit.application.ingest_lifecycle_event import (
     IngestAgentLifecycleEventCommand,
 )
 from backend.app.audit.application.ingest_network_event import IngestNetworkAuditEventCommand
+from backend.app.audit.application.query_device_movements import DeviceMovement
 from backend.app.audit.application.query_incident_window import (
     IncidentDeviceStatus,
     IncidentWindow,
@@ -262,4 +263,54 @@ class IncidentWindowResponse(BaseModel):
                 AgentLifecycleEventResponse.from_domain(event)
                 for event in result.lifecycle_events
             ],
+        )
+
+
+class DeviceMovementResponse(BaseModel):
+    event_id: str
+    occurred_at: datetime
+    created_at: datetime
+    movement_type: str
+    device_id: str
+    hostname: str
+    local_ip: str | None
+    public_ip: str | None
+    summary: str
+    protocol: str | None
+    destination_host: str | None
+    destination_ip: str | None
+    destination_port: int | None
+    local_username: str | None
+    process_id: int | None
+    process_name: str | None
+    process_executable: str | None
+    service_name: str | None
+    network_interface: str | None
+    connection_status: str | None
+    lifecycle_reason: str | None
+
+    @classmethod
+    def from_result(cls, result: DeviceMovement) -> "DeviceMovementResponse":
+        return cls(
+            event_id=result.event_id,
+            occurred_at=result.occurred_at,
+            created_at=result.created_at,
+            movement_type=result.movement_type,
+            device_id=result.device_id,
+            hostname=result.hostname,
+            local_ip=result.local_ip,
+            public_ip=result.public_ip,
+            summary=result.summary,
+            protocol=result.protocol,
+            destination_host=result.destination_host,
+            destination_ip=result.destination_ip,
+            destination_port=result.destination_port,
+            local_username=result.local_username,
+            process_id=result.process_id,
+            process_name=result.process_name,
+            process_executable=result.process_executable,
+            service_name=result.service_name,
+            network_interface=result.network_interface,
+            connection_status=result.connection_status,
+            lifecycle_reason=result.lifecycle_reason,
         )

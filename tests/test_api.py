@@ -349,6 +349,65 @@ async def test_query_incident_window_groups_activity_and_missing_devices(
 
 
 @pytest.mark.anyio
+async def test_query_device_movements_combines_network_and_lifecycle_events() -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
+        network_response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "occurred_at": "2026-07-27T14:03:00+00:00",
+                "device_id": "device-1",
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_host": "db-produccion.local",
+                "destination_ip": "10.0.0.25",
+                "destination_port": 5432,
+                "local_username": "dev-user",
+                "process_id": 4242,
+                "process_name": "psql",
+                "service_name": "Base de datos produccion",
+            },
+        )
+        assert network_response.status_code == 201
+        lifecycle_response = await client.post(
+            "/api/v1/audit/lifecycle-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "event_type": "AGENT_STOPPED",
+                "occurred_at": "2026-07-27T14:04:00+00:00",
+                "device_id": "device-1",
+                "hostname": "DEV-LAPTOP-001",
+                "agent_version": "0.1.0",
+                "local_ip": "192.168.1.10",
+                "reason": "stop requested",
+            },
+        )
+        assert lifecycle_response.status_code == 201
+
+        response = await client.get(
+            "/api/v1/audit/device-movements",
+            headers=auditor_headers(),
+            params={"device_id": "device-1", "limit": 10},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [movement["movement_type"] for movement in body] == [
+        "AGENT_STOPPED",
+        "NETWORK_CONNECTION",
+    ]
+    assert body[0]["summary"] == "AGENT_STOPPED: stop requested"
+    assert body[1]["summary"] == "Base de datos produccion:5432"
+    assert body[1]["process_name"] == "psql"
+    assert body[1]["local_username"] == "dev-user"
+
+
+@pytest.mark.anyio
 async def test_query_incident_window_accepts_exact_timestamp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -599,6 +658,10 @@ async def test_audit_queries_require_auditor_token() -> None:
         devices_response = await client.get("/api/v1/devices")
         network_events_response = await client.get("/api/v1/audit/network-events")
         lifecycle_events_response = await client.get("/api/v1/audit/lifecycle-events")
+        device_movements_response = await client.get(
+            "/api/v1/audit/device-movements",
+            params={"device_id": "device-1"},
+        )
         incident_window_response = await client.get(
             "/api/v1/audit/incident-window",
             params={
@@ -610,6 +673,7 @@ async def test_audit_queries_require_auditor_token() -> None:
     assert devices_response.status_code == 401
     assert network_events_response.status_code == 401
     assert lifecycle_events_response.status_code == 401
+    assert device_movements_response.status_code == 401
     assert incident_window_response.status_code == 401
 
 

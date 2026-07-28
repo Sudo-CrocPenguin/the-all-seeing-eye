@@ -12,6 +12,10 @@ from backend.app.audit.application.ingest_lifecycle_event import (
     IngestAgentLifecycleEventUseCase,
 )
 from backend.app.audit.application.ingest_network_event import IngestNetworkAuditEventUseCase
+from backend.app.audit.application.query_device_movements import (
+    QueryDeviceMovementsCommand,
+    QueryDeviceMovementsUseCase,
+)
 from backend.app.audit.application.query_incident_window import (
     QueryIncidentWindowCommand,
     QueryIncidentWindowUseCase,
@@ -28,6 +32,7 @@ from backend.app.audit.presentation.schemas import (
     AgentLifecycleEventRequest,
     AgentLifecycleEventResponse,
     AgentLifecycleEventTypeRequest,
+    DeviceMovementResponse,
     IncidentWindowResponse,
     NetworkAuditEventRequest,
     NetworkAuditEventResponse,
@@ -204,6 +209,31 @@ async def search_network_events(
     )
     events = container.network_event_repository.search(filters)
     return [NetworkAuditEventResponse.from_domain(event) for event in events]
+
+
+@router.get("/device-movements", response_model=list[DeviceMovementResponse])
+async def search_device_movements(
+    request: Request,
+    container: Annotated[AppContainer, Depends(get_container)],
+    device_id: str,
+    from_datetime: FromDateTimeQuery = None,
+    to_datetime: ToDateTimeQuery = None,
+    limit: LimitQuery = 100,
+) -> list[DeviceMovementResponse]:
+    require_auditor_token(request, request.app.state.container.settings)
+    use_case = QueryDeviceMovementsUseCase(
+        container.network_event_repository,
+        container.lifecycle_event_repository,
+    )
+    movements = use_case.execute(
+        QueryDeviceMovementsCommand(
+            device_id=device_id,
+            from_datetime=from_datetime,
+            to_datetime=to_datetime,
+            limit=limit,
+        ),
+    )
+    return [DeviceMovementResponse.from_result(movement) for movement in movements]
 
 
 @router.get("/incident-window", response_model=IncidentWindowResponse)
