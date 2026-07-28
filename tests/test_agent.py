@@ -16,7 +16,7 @@ from agent.app.local_queue import LocalAgentRequestQueue, QueuedAuditApiClient, 
 from agent.app.network_collector import NetworkConnectionCollector, ObservedNetworkConnection
 from agent.app.runner import AgentConfigurationError, AgentRunner
 from agent.app.service_map import ServiceMap, ServiceMapEntry
-from agent.app.transport import AgentTransportError, AuditApiClient
+from agent.app.transport import AgentTransportError, AuditApiClient, InsecureBackendUrlError
 from agent.app.windows_service import (
     WINDOWS_SERVICE_DESCRIPTION,
     WINDOWS_SERVICE_DISPLAY_NAME,
@@ -36,6 +36,7 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     monkeypatch.setenv("AGENT_QUEUE_FILE", "/tmp/the-all-seeing-eye-agent-queue.jsonl")
     monkeypatch.setenv("AGENT_SERVICE_MAP_FILE", "/tmp/the-all-seeing-eye-service-map.json")
     monkeypatch.setenv("AGENT_REVERSE_DNS_ENABLED", "false")
+    monkeypatch.setenv("AGENT_ALLOW_INSECURE_TRANSPORT", "true")
 
     settings = AgentSettings.from_environment()
 
@@ -49,6 +50,7 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     assert str(settings.queue_file) == "/tmp/the-all-seeing-eye-agent-queue.jsonl"
     assert str(settings.service_map_file) == "/tmp/the-all-seeing-eye-service-map.json"
     assert not settings.reverse_dns_enabled
+    assert settings.allow_insecure_transport
 
 
 def test_agent_settings_from_env_file(tmp_path: Any, monkeypatch: Any) -> None:
@@ -413,7 +415,7 @@ def test_api_client_sends_agent_token_header(monkeypatch: Any) -> None:
         interfaces=(),
     )
     client = AuditApiClient(
-        "http://backend.local:8000",
+        "https://backend.local:8000",
         agent_token="agent-token",
         agent_token_header="X-Agent-Token",
     )
@@ -421,6 +423,45 @@ def test_api_client_sends_agent_token_header(monkeypatch: Any) -> None:
     client.register_device(identity)
 
     assert captured_headers["X-agent-token"] == "agent-token"
+
+
+def test_api_client_rejects_non_local_http_backend_by_default() -> None:
+    try:
+        AuditApiClient("http://backend.local:8000", agent_token="agent-token")
+    except InsecureBackendUrlError as exc:
+        assert "HTTPS" in str(exc)
+    else:
+        raise AssertionError("El agente debe rechazar HTTP no-local por defecto")
+
+
+def test_api_client_allows_loopback_http_backend_by_default() -> None:
+    client = AuditApiClient("http://127.0.0.1:8000", agent_token="agent-token")
+
+    assert isinstance(client, AuditApiClient)
+
+
+def test_api_client_allows_explicit_insecure_transport_override() -> None:
+    client = AuditApiClient(
+        "http://backend.local:8000",
+        agent_token="agent-token",
+        allow_insecure_transport=True,
+    )
+
+    assert isinstance(client, AuditApiClient)
+
+
+def test_runner_reports_insecure_backend_as_configuration_error() -> None:
+    try:
+        AgentRunner(
+            AgentSettings(
+                backend_url="http://backend.local:8000",
+                agent_token="agent-token",
+            ),
+        )
+    except AgentConfigurationError as exc:
+        assert "HTTPS" in str(exc)
+    else:
+        raise AssertionError("AgentRunner debe reportar transporte inseguro como configuracion")
 
 
 def test_queued_client_persists_request_when_backend_fails(tmp_path: Any) -> None:
@@ -558,6 +599,29 @@ def test_queued_client_queues_current_request_when_pending_flush_is_blocked(
         "/api/v1/audit/lifecycle-events",
         "/api/v1/audit/network-events",
     ]
+
+
+def test_local_queue_ignores_corrupt_jsonl_records(tmp_path: Any) -> None:
+    queue_file = tmp_path / "agent-queue.jsonl"
+    valid_request = QueuedRequest(
+        path="/api/v1/devices",
+        payload={"device_id": "device-1"},
+    )
+    queue_file.write_text(
+        "\n".join(
+            [
+                '{"payload": {"device_id": "device-1"}, "path": "/api/v1/devices"}',
+                "{json cortado",
+                '{"payload": [], "path": "/api/v1/audit/network-events"}',
+            ],
+        ),
+        encoding="utf-8",
+    )
+
+    requests = LocalAgentRequestQueue(queue_file).read_all()
+
+    assert requests == [valid_request]
+    assert LocalAgentRequestQueue(queue_file).read_all() == [valid_request]
 
 
 def test_windows_service_metadata_is_corporate_and_visible() -> None:

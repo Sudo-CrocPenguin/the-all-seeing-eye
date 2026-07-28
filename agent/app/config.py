@@ -48,6 +48,7 @@ class AgentSettings:
     queue_file: Path = Path.home() / ".local/state/the-all-seeing-eye/agent-queue.jsonl"
     service_map_file: Path | None = None
     reverse_dns_enabled: bool = True
+    allow_insecure_transport: bool = False
 
     @classmethod
     def from_environment(cls, env_file: str | Path | None = None) -> "AgentSettings":
@@ -74,6 +75,7 @@ class AgentSettings:
             ),
             service_map_file=_get_path("AGENT_SERVICE_MAP_FILE"),
             reverse_dns_enabled=_get_bool("AGENT_REVERSE_DNS_ENABLED", True),
+            allow_insecure_transport=_get_bool("AGENT_ALLOW_INSECURE_TRANSPORT", False),
         )
 
 

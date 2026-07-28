@@ -1,4 +1,5 @@
 import json
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,8 @@ from agent.app.transport import (
     build_device_registration_payload,
     build_lifecycle_event_payload,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,13 +43,26 @@ class LocalAgentRequestQueue:
             return []
 
         requests: list[QueuedRequest] = []
+        found_invalid_records = False
         for line in self._queue_file.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
-            decoded = json.loads(line)
-            if not isinstance(decoded, dict):
-                continue
-            requests.append(self._request_from_json(decoded))
+            try:
+                decoded = json.loads(line)
+                if not isinstance(decoded, dict):
+                    raise ValueError("Registro de cola local debe ser objeto JSON")
+                requests.append(self._request_from_json(decoded))
+            except (json.JSONDecodeError, ValueError) as exc:
+                found_invalid_records = True
+                LOGGER.warning(
+                    "Registro corrupto ignorado en cola local %s: %s",
+                    self._queue_file,
+                    exc,
+                )
+
+        if found_invalid_records:
+            self.replace_all(requests)
+
         return requests
 
     def replace_all(self, requests: list[QueuedRequest]) -> None:
