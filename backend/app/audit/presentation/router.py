@@ -15,8 +15,13 @@ from backend.app.audit.domain.repositories import (
 from backend.app.audit.presentation.schemas import (
     AgentLifecycleEventRequest,
     AgentLifecycleEventResponse,
+    AgentLifecycleEventTypeRequest,
     NetworkAuditEventRequest,
     NetworkAuditEventResponse,
+)
+from backend.app.devices.application.mark_device_seen import (
+    MarkDeviceSeenCommand,
+    MarkDeviceSeenUseCase,
 )
 from backend.app.shared.container import AppContainer
 from backend.app.shared.dependencies import get_container
@@ -28,6 +33,15 @@ FromDateTimeQuery = Annotated[datetime | None, Query(alias="from")]
 ToDateTimeQuery = Annotated[datetime | None, Query(alias="to")]
 LimitQuery = Annotated[int, Query(ge=1, le=500)]
 
+_LIFECYCLE_EVENTS_THAT_MARK_DEVICE_SEEN = {
+    AgentLifecycleEventTypeRequest.STARTED,
+    AgentLifecycleEventTypeRequest.STOPPING,
+    AgentLifecycleEventTypeRequest.STOPPED,
+    AgentLifecycleEventTypeRequest.HEARTBEAT,
+    AgentLifecycleEventTypeRequest.RECOVERED,
+    AgentLifecycleEventTypeRequest.CONFIG_CHANGED,
+}
+
 
 def _observed_public_ip(request: Request) -> str | None:
     if request.client is None:
@@ -38,6 +52,11 @@ def _observed_public_ip(request: Request) -> str | None:
     except ValueError:
         return None
     return host
+
+
+def _mark_device_seen(container: AppContainer, device_id: str) -> None:
+    use_case = MarkDeviceSeenUseCase(container.device_repository)
+    use_case.execute(MarkDeviceSeenCommand(device_id=device_id))
 
 
 @router.post(
@@ -58,6 +77,7 @@ async def ingest_network_event(
     )
     use_case = IngestNetworkAuditEventUseCase(container.network_event_repository)
     event = use_case.execute(payload.to_command(_observed_public_ip(request)))
+    _mark_device_seen(container, payload.device_id)
     return NetworkAuditEventResponse.from_domain(event)
 
 
@@ -107,6 +127,8 @@ async def ingest_lifecycle_event(
     )
     use_case = IngestAgentLifecycleEventUseCase(container.lifecycle_event_repository)
     event = use_case.execute(payload.to_command(_observed_public_ip(request)))
+    if payload.event_type in _LIFECYCLE_EVENTS_THAT_MARK_DEVICE_SEEN:
+        _mark_device_seen(container, payload.device_id)
     return AgentLifecycleEventResponse.from_domain(event)
 
 
