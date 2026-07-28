@@ -297,5 +297,6 @@ Cuando el servicio se detiene con `systemctl stop`, `Stop-Service` o la consola 
 
 ## Documentacion Tecnica
 
+- [Contexto forense de la aplicacion](docs/contexto-forense.md)
 - [Backend de auditoria](backend/docs/backend.md)
 - [Agente MVP de auditoria](agent/docs/agent.md)
