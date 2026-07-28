@@ -56,6 +56,12 @@ def _validate_non_negative(value: int, field_name: str) -> int:
     return value
 
 
+def _validate_optional_non_negative(value: int | None, field_name: str) -> int | None:
+    if value is None:
+        return None
+    return _validate_non_negative(value, field_name)
+
+
 @dataclass(slots=True)
 class NetworkAuditEvent:
     event_id: str
@@ -76,6 +82,11 @@ class NetworkAuditEvent:
     bytes_received: int = 0
     network_interface: str | None = None
     mac_address: str | None = None
+    local_username: str | None = None
+    process_id: int | None = None
+    process_name: str | None = None
+    process_executable: str | None = None
+    service_name: str | None = None
     request_metadata: dict[str, str] = field(default_factory=dict)
     response_metadata: dict[str, str] = field(default_factory=dict)
     created_at: datetime = field(default_factory=utc_now)
@@ -99,6 +110,11 @@ class NetworkAuditEvent:
             self.http_method = self.http_method.upper()
         self.network_interface = _normalize_optional_text(self.network_interface)
         self.mac_address = _normalize_optional_text(self.mac_address)
+        self.local_username = _normalize_optional_text(self.local_username)
+        self.process_id = _validate_optional_non_negative(self.process_id, "process_id")
+        self.process_name = _normalize_optional_text(self.process_name)
+        self.process_executable = _normalize_optional_text(self.process_executable)
+        self.service_name = _normalize_optional_text(self.service_name)
         self.bytes_sent = _validate_non_negative(self.bytes_sent, "bytes_sent")
         self.bytes_received = _validate_non_negative(self.bytes_received, "bytes_received")
         if self.http_status_code is not None and not 100 <= self.http_status_code <= 599:
@@ -141,4 +157,3 @@ class AgentLifecycleEvent:
                 self.downtime_seconds,
                 "downtime_seconds",
             )
-

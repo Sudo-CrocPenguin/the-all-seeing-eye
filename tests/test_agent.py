@@ -1,7 +1,9 @@
+import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
+from agent.app import cli as agent_cli
 from agent.app.config import AgentSettings
 from agent.app.device_identity import (
     DeviceIdentity,
@@ -13,6 +15,7 @@ from agent.app.env_file import parse_environment_lines
 from agent.app.local_queue import LocalAgentRequestQueue, QueuedAuditApiClient, QueuedRequest
 from agent.app.network_collector import NetworkConnectionCollector, ObservedNetworkConnection
 from agent.app.runner import AgentConfigurationError, AgentRunner
+from agent.app.service_map import ServiceMap, ServiceMapEntry
 from agent.app.transport import AgentTransportError, AuditApiClient
 from agent.app.windows_service import (
     WINDOWS_SERVICE_DESCRIPTION,
@@ -31,6 +34,7 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     monkeypatch.setenv("AGENT_SCAN_INTERVAL_SECONDS", "5")
     monkeypatch.setenv("AGENT_REQUEST_RETRY_BACKOFF_SECONDS", "7")
     monkeypatch.setenv("AGENT_QUEUE_FILE", "/tmp/the-all-seeing-eye-agent-queue.jsonl")
+    monkeypatch.setenv("AGENT_SERVICE_MAP_FILE", "/tmp/the-all-seeing-eye-service-map.json")
 
     settings = AgentSettings.from_environment()
 
@@ -42,6 +46,7 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     assert settings.scan_interval_seconds == 5
     assert settings.request_retry_backoff_seconds == 7
     assert str(settings.queue_file) == "/tmp/the-all-seeing-eye-agent-queue.jsonl"
+    assert str(settings.service_map_file) == "/tmp/the-all-seeing-eye-service-map.json"
 
 
 def test_agent_settings_from_env_file(tmp_path: Any, monkeypatch: Any) -> None:
@@ -67,6 +72,36 @@ def test_agent_settings_from_env_file(tmp_path: Any, monkeypatch: Any) -> None:
     assert settings.device_id == "device-file"
     assert settings.agent_token == "token-file"
     assert settings.heartbeat_interval_seconds == 20
+
+
+def test_cli_preserves_service_map_file_from_environment(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    service_map_file = tmp_path / "service-map.json"
+    captured: dict[str, object] = {}
+
+    class FakeCliRunner:
+        def __init__(self, settings: AgentSettings) -> None:
+            captured["settings"] = settings
+
+        def run_once(self) -> None:
+            captured["run_once"] = True
+
+        def run_forever(self) -> None:
+            captured["run_forever"] = True
+
+    monkeypatch.setenv("AGENT_TOKEN", "agent-token")
+    monkeypatch.setenv("AGENT_SERVICE_MAP_FILE", str(service_map_file))
+    monkeypatch.setattr(agent_cli, "AgentRunner", FakeCliRunner)
+    monkeypatch.setattr(sys, "argv", ["agent", "--once"])
+
+    agent_cli.main()
+
+    settings = captured["settings"]
+    assert isinstance(settings, AgentSettings)
+    assert settings.service_map_file == service_map_file
+    assert captured["run_once"] is True
 
 
 def test_environment_variables_override_env_file(tmp_path: Any, monkeypatch: Any) -> None:
@@ -112,11 +147,13 @@ def test_network_collector_builds_connection_payload(monkeypatch: Any) -> None:
         laddr=SimpleNamespace(ip="192.168.1.10", port=51515),
         raddr=SimpleNamespace(ip="93.184.216.34", port=443),
         status="ESTABLISHED",
+        pid=1234,
     )
     monkeypatch.setattr(
         "agent.app.network_collector.psutil.net_connections",
         lambda kind: [raw_connection],
     )
+    monkeypatch.setattr("agent.app.network_collector.psutil.Process", FakeProcess)
     identity = DeviceIdentity(
         device_id="device-1",
         hostname="DEV-LAPTOP-001",
@@ -132,16 +169,32 @@ def test_network_collector_builds_connection_payload(monkeypatch: Any) -> None:
         ),
     )
 
-    connections = NetworkConnectionCollector().collect(identity)
+    service_map = ServiceMap(
+        [
+            ServiceMapEntry(
+                name="Servicio HTTPS de ejemplo",
+                destination_ip="93.184.216.34",
+                destination_port=443,
+                destination_host="example.com",
+            ),
+        ],
+    )
+    connections = NetworkConnectionCollector(service_map).collect(identity)
 
     assert len(connections) == 1
     payload = connections[0].to_backend_payload(identity)
     assert payload["device_id"] == "device-1"
     assert payload["protocol"] == "TCP"
     assert payload["destination_ip"] == "93.184.216.34"
+    assert payload["destination_host"] == "example.com"
     assert payload["destination_port"] == 443
     assert payload["network_interface"] == "eth0"
     assert payload["mac_address"] == "00:11:22:33:44:55"
+    assert payload["local_username"] == "dev-user"
+    assert payload["process_id"] == 1234
+    assert payload["process_name"] == "psql"
+    assert payload["process_executable"] == "/usr/bin/psql"
+    assert payload["service_name"] == "Servicio HTTPS de ejemplo"
 
 
 def test_runner_once_reports_lifecycle_and_network_event() -> None:
@@ -407,6 +460,20 @@ class RecordingPostJsonClient:
     def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
         self.requests.append((path, payload))
         return {"status": "ok"}
+
+
+class FakeProcess:
+    def __init__(self, process_id: int) -> None:
+        self._process_id = process_id
+
+    def name(self) -> str:
+        return "psql"
+
+    def exe(self) -> str:
+        return "/usr/bin/psql"
+
+    def username(self) -> str:
+        return "dev-user"
 
 
 class FakeMonotonicClock:

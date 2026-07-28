@@ -1,8 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from ipaddress import ip_address
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from backend.app.audit.application.detect_missed_heartbeats import (
     DetectMissedHeartbeatsCommand,
@@ -12,6 +12,10 @@ from backend.app.audit.application.ingest_lifecycle_event import (
     IngestAgentLifecycleEventUseCase,
 )
 from backend.app.audit.application.ingest_network_event import IngestNetworkAuditEventUseCase
+from backend.app.audit.application.query_incident_window import (
+    QueryIncidentWindowCommand,
+    QueryIncidentWindowUseCase,
+)
 from backend.app.audit.application.record_agent_activity import (
     RecordAgentActivityCommand,
     RecordAgentActivityUseCase,
@@ -24,6 +28,7 @@ from backend.app.audit.presentation.schemas import (
     AgentLifecycleEventRequest,
     AgentLifecycleEventResponse,
     AgentLifecycleEventTypeRequest,
+    IncidentWindowResponse,
     NetworkAuditEventRequest,
     NetworkAuditEventResponse,
 )
@@ -39,6 +44,8 @@ router = APIRouter(prefix="/audit", tags=["audit"])
 
 FromDateTimeQuery = Annotated[datetime | None, Query(alias="from")]
 ToDateTimeQuery = Annotated[datetime | None, Query(alias="to")]
+IncidentAtQuery = Annotated[datetime | None, Query(alias="at")]
+WindowSecondsQuery = Annotated[int, Query(ge=60, le=86_400)]
 LimitQuery = Annotated[int, Query(ge=1, le=500)]
 
 _LIFECYCLE_EVENTS_THAT_MARK_DEVICE_SEEN = {
@@ -77,6 +84,35 @@ def _record_agent_activity(
         container.lifecycle_event_repository,
     )
     use_case.execute(command)
+
+
+def _resolve_incident_window(
+    *,
+    from_datetime: datetime | None,
+    to_datetime: datetime | None,
+    incident_at: datetime | None,
+    window_seconds: int,
+) -> tuple[datetime, datetime]:
+    if incident_at is not None:
+        if from_datetime is not None or to_datetime is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Use at o from/to, no ambos",
+            )
+        before_seconds = window_seconds // 2
+        after_seconds = window_seconds - before_seconds
+        return (
+            incident_at - timedelta(seconds=before_seconds),
+            incident_at + timedelta(seconds=after_seconds),
+        )
+
+    if from_datetime is None or to_datetime is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debe enviar from/to o at",
+        )
+
+    return from_datetime, to_datetime
 
 
 @router.post(
@@ -139,6 +175,38 @@ async def search_network_events(
     )
     events = container.network_event_repository.search(filters)
     return [NetworkAuditEventResponse.from_domain(event) for event in events]
+
+
+@router.get("/incident-window", response_model=IncidentWindowResponse)
+async def query_incident_window(
+    request: Request,
+    container: Annotated[AppContainer, Depends(get_container)],
+    from_datetime: FromDateTimeQuery = None,
+    to_datetime: ToDateTimeQuery = None,
+    incident_at: IncidentAtQuery = None,
+    window_seconds: WindowSecondsQuery = 900,
+    limit: LimitQuery = 500,
+) -> IncidentWindowResponse:
+    require_auditor_token(request, request.app.state.container.settings)
+    resolved_from_datetime, resolved_to_datetime = _resolve_incident_window(
+        from_datetime=from_datetime,
+        to_datetime=to_datetime,
+        incident_at=incident_at,
+        window_seconds=window_seconds,
+    )
+    use_case = QueryIncidentWindowUseCase(
+        container.device_repository,
+        container.network_event_repository,
+        container.lifecycle_event_repository,
+    )
+    result = use_case.execute(
+        QueryIncidentWindowCommand(
+            from_datetime=resolved_from_datetime,
+            to_datetime=resolved_to_datetime,
+            limit=limit,
+        ),
+    )
+    return IncidentWindowResponse.from_result(result)
 
 
 @router.post(

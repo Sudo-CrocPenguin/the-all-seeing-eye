@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
@@ -8,6 +8,20 @@ from backend.app.audit.domain.entities import (
     NetworkAuditEvent,
 )
 from backend.app.shared.domain import DomainValidationError
+from backend.app.shared.time import ensure_aware
+
+
+def test_ensure_aware_normalizes_offset_datetime_to_utc() -> None:
+    local_datetime = datetime(
+        2026,
+        7,
+        27,
+        14,
+        3,
+        tzinfo=timezone(timedelta(hours=-5)),
+    )
+
+    assert ensure_aware(local_datetime) == datetime(2026, 7, 27, 19, 3, tzinfo=UTC)
 
 
 def test_network_event_normalizes_protocol_and_http_method() -> None:
@@ -77,4 +91,3 @@ def test_lifecycle_event_accepts_missed_heartbeat_data() -> None:
 
     assert event.event_type == AgentLifecycleEventType.MISSED_HEARTBEAT
     assert event.downtime_seconds == 180
-

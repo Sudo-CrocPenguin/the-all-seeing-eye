@@ -14,6 +14,13 @@ def _get_int(name: str, default: int) -> int:
     return int(raw_value)
 
 
+def _get_path(name: str) -> Path | None:
+    raw_value = getenv(name)
+    if raw_value is None or raw_value.strip() == "":
+        return None
+    return Path(raw_value.strip())
+
+
 @dataclass(frozen=True, slots=True)
 class AgentSettings:
     backend_url: str = "http://127.0.0.1:8000"
@@ -26,6 +33,7 @@ class AgentSettings:
     request_timeout_seconds: int = 10
     request_retry_backoff_seconds: int = 30
     queue_file: Path = Path.home() / ".local/state/the-all-seeing-eye/agent-queue.jsonl"
+    service_map_file: Path | None = None
 
     @classmethod
     def from_environment(cls, env_file: str | Path | None = None) -> "AgentSettings":
@@ -50,6 +58,7 @@ class AgentSettings:
                     str(Path.home() / ".local/state/the-all-seeing-eye/agent-queue.jsonl"),
                 ),
             ),
+            service_map_file=_get_path("AGENT_SERVICE_MAP_FILE"),
         )
 
 

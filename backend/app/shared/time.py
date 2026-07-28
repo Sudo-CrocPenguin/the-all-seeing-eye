@@ -6,7 +6,6 @@ def utc_now() -> datetime:
 
 
 def ensure_aware(value: datetime) -> datetime:
-    if value.tzinfo is None:
+    if value.tzinfo is None or value.utcoffset() is None:
         return value.replace(tzinfo=UTC)
-    return value
-
+    return value.astimezone(UTC)
