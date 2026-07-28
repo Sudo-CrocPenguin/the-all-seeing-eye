@@ -1,6 +1,6 @@
 [project]
 name = "the-all-seeing-eye"
-version = "0.1.0"
+version = "0.1.0b1"
 description = "Backend de auditoria de red para equipos corporativos autorizados."
 readme = "README.md"
 requires-python = ">=3.12"

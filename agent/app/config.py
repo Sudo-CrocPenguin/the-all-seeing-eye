@@ -4,7 +4,7 @@ from pathlib import Path
 
 from agent.app.env_file import load_agent_environment
 
-AGENT_VERSION = "0.1.0"
+AGENT_VERSION = "0.1.0-beta.1"
 
 
 def _get_int(name: str, default: int) -> int:

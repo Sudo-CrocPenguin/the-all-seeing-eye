@@ -6,6 +6,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from agent.app.config import AGENT_VERSION
 from agent.app.device_identity import DeviceIdentity
 
 
@@ -101,7 +102,7 @@ class AuditApiClient:
             data=body,
             headers={
                 "Content-Type": "application/json",
-                "User-Agent": "the-all-seeing-eye-agent/0.1.0",
+                "User-Agent": f"the-all-seeing-eye-agent/{AGENT_VERSION}",
                 self._agent_token_header: self._agent_token,
             },
             method="POST",
