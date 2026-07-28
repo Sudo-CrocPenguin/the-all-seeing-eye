@@ -121,11 +121,12 @@ def _build_device_statuses(
     from_datetime: datetime,
     to_datetime: datetime,
 ) -> list[IncidentDeviceStatus]:
+    combined_events = _combine_events(network_events, lifecycle_events)
     device_ids_with_events = {
         event.device_id
-        for event in [*network_events, *lifecycle_events]
+        for event in combined_events
     }
-    events_by_device = _latest_event_by_device(network_events, lifecycle_events)
+    events_by_device = _latest_event_by_device(combined_events)
     registered_devices = {device.device_id: device for device in devices}
     device_ids = set(registered_devices) | device_ids_with_events
 
@@ -149,12 +150,21 @@ def _build_device_statuses(
     return statuses
 
 
-def _latest_event_by_device(
+def _combine_events(
     network_events: list[NetworkAuditEvent],
     lifecycle_events: list[AgentLifecycleEvent],
+) -> list[NetworkAuditEvent | AgentLifecycleEvent]:
+    combined_events: list[NetworkAuditEvent | AgentLifecycleEvent] = []
+    combined_events.extend(network_events)
+    combined_events.extend(lifecycle_events)
+    return combined_events
+
+
+def _latest_event_by_device(
+    events: list[NetworkAuditEvent | AgentLifecycleEvent],
 ) -> dict[str, NetworkAuditEvent | AgentLifecycleEvent]:
     latest_events: dict[str, NetworkAuditEvent | AgentLifecycleEvent] = {}
-    for event in [*network_events, *lifecycle_events]:
+    for event in events:
         current = latest_events.get(event.device_id)
         if current is None or event.occurred_at > current.occurred_at:
             latest_events[event.device_id] = event
