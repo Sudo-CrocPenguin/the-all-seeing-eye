@@ -6,6 +6,7 @@ from backend.app.devices.application.authenticate_agent import (
     AuthenticateAgentCommand,
     AuthenticateAgentUseCase,
 )
+from backend.app.devices.domain.entities import Device
 from backend.app.shared.config import Settings
 from backend.app.shared.container import AppContainer
 
@@ -46,7 +47,8 @@ def require_agent_token(
     container: AppContainer,
     *,
     device_id: str,
-) -> None:
+    require_registered_device: bool = False,
+) -> Device | None:
     supplied_token = request.headers.get(settings.agent_token_header)
     if not supplied_token:
         raise HTTPException(
@@ -63,3 +65,14 @@ def require_agent_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token de agente invalido",
         )
+
+    if not require_registered_device:
+        return None
+
+    device = container.device_repository.find_by_id(device_id)
+    if device is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Dispositivo no registrado",
+        )
+    return device
