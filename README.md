@@ -119,7 +119,9 @@ Eventos principales:
 - AGENT_RECOVERED: el agente volvio a reportar despues de una ausencia.
 - AGENT_CONFIG_CHANGED: cambio una configuracion del agente.
 
-El backend debe calcular ventanas de inactividad cuando un agente deje de enviar heartbeats.
+El backend calcula ventanas de inactividad cuando un agente deja de enviar heartbeats. El detector revisa `devices.last_seen_at`, compara contra `AGENT_HEARTBEAT_TIMEOUT_SECONDS` y registra `AGENT_MISSED_HEARTBEAT` cuando el equipo deja de reportar sin un estado que explique la ausencia.
+
+Cuando un agente vuelve a reportar despues de estar marcado como perdido, el backend registra `AGENT_RECOVERED` y actualiza `last_seen_at`.
 
 Ejemplo:
 
@@ -255,7 +257,7 @@ La plataforma debe implementar controles de proteccion desde el inicio:
 
 ## Estado Actual
 
-El proyecto se encuentra en etapa de MVP. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes basicas y desplegarse como servicio administrado en Linux/Windows.
+El proyecto se encuentra en etapa de MVP. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. El backend actualiza `last_seen_at` cuando recibe senales validas de agentes autenticados, detecta heartbeats perdidos y registra recuperaciones. El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes basicas y desplegarse como servicio administrado en Linux/Windows.
 
 ## Despliegue Del Agente Como Servicio
 
