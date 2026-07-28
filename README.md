@@ -8,6 +8,7 @@ El sistema esta pensado para ambientes empresariales donde los empleados son inf
 
 - [Contexto forense de la aplicacion](docs/contexto-forense.md)
 - [Beta local de historial forense](docs/beta-local-historial-forense.md)
+- [Piloto controlado 0.1.0 beta](docs/piloto-controlado.md)
 
 ## Para Que Sirve
 
@@ -270,6 +271,8 @@ El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexi
 
 La beta exige que los eventos pertenezcan a dispositivos registrados, no encola errores fatales del backend, conserva orden causal en la cola local y acepta IP publica desde headers de proxy solo cuando el proxy esta declarado en `TRUSTED_PROXY_IPS`. El `public_ip` del JSON del agente no se usa como evidencia.
 
+La version `0.1.0-beta.1` es apta para piloto controlado, no para produccion abierta. Fuera de local, el backend debe ir detras de HTTPS/reverse proxy o VPN, los tokens compartidos deben ser fuertes, `/docs` debe desactivarse y el scheduler de heartbeats debe quedar activo.
+
 ## Despliegue Del Agente Como Servicio
 
 El agente esta preparado para ejecutarse en segundo plano como servicio corporativo visible y administrable por IT. Esta capacidad sirve para que el proceso arranque con el sistema operativo, se reinicie ante fallos y registre eventos de apagado/encendido cuando el servicio se detiene de forma controlada.
@@ -311,3 +314,4 @@ Cuando el servicio se detiene con `systemctl stop`, `Stop-Service` o la consola 
 - [Contexto forense de la aplicacion](docs/contexto-forense.md)
 - [Backend de auditoria](backend/docs/backend.md)
 - [Agente MVP de auditoria](agent/docs/agent.md)
+- [Piloto controlado 0.1.0 beta](docs/piloto-controlado.md)

@@ -62,6 +62,8 @@ La documentacion interactiva de FastAPI queda disponible en:
 http://127.0.0.1:8000/docs
 ```
 
+En entornos no locales (`APP_ENV=beta`, `staging` o similar), `/docs`, `/redoc` y `/openapi.json` se desactivan automaticamente aunque `API_DOCS_ENABLED=true`. Para local siguen activos por defecto.
+
 ## Base De Datos Local
 
 Levantar PostgreSQL:
@@ -82,8 +84,13 @@ Variable principal:
 DATABASE_URL=postgresql+psycopg://audit:audit@localhost:5432/the_all_seeing_eye
 POSTGRES_HOST=127.0.0.1
 POSTGRES_PORT=5432
+POSTGRES_DB=the_all_seeing_eye
+POSTGRES_USER=audit
+POSTGRES_PASSWORD=audit
 PERSISTENCE_BACKEND=sqlalchemy
 ```
+
+Los valores `audit/audit` son solo defaults locales de Docker Compose. Para piloto controlado se deben reemplazar por credenciales fuertes y una base separada de los sistemas auditados.
 
 Crear o actualizar las tablas:
 
@@ -156,6 +163,8 @@ Configurar el token en el backend:
 AUDITOR_TOKEN=valor-de-auditoria-seguro
 AUDITOR_TOKEN_HEADER=X-Auditor-Token
 ```
+
+En entornos no locales, `AUDITOR_TOKEN` y `PROVISIONING_TOKEN` deben tener al menos 32 caracteres. Si no cumplen esa condicion, el backend no arranca.
 
 Los endpoints protegidos son:
 
@@ -242,6 +251,13 @@ Es el mecanismo que permite saber si un agente sigue reportando, dejo de enviar 
 
 `AGENT_HEARTBEAT_TIMEOUT_SECONDS` define cuantos segundos puede pasar un agente sin reportar antes de considerarse vencido. El valor por defecto es `180`.
 
+Para no depender de ejecucion manual, el backend puede correr el detector en segundo plano:
+
+```text
+MISSED_HEARTBEAT_SCHEDULER_ENABLED=true
+MISSED_HEARTBEAT_SCHEDULER_INTERVAL_SECONDS=60
+```
+
 El detector se ejecuta con un endpoint administrativo protegido por `X-Provisioning-Token`:
 
 ```bash
@@ -252,6 +268,14 @@ curl -X POST http://127.0.0.1:8000/api/v1/audit/lifecycle-events/detect-missed-h
 El endpoint revisa todos los dispositivos registrados. Si `last_seen_at` es anterior al timeout configurado y el ultimo evento de ciclo de vida no explica ya la ausencia, crea un evento `AGENT_MISSED_HEARTBEAT`.
 
 Cuando un agente vuelve a enviar `AGENT_STARTED`, `AGENT_HEARTBEAT`, `AGENT_CONFIG_CHANGED` o un evento de red despues de estar marcado como perdido, el backend registra automaticamente `AGENT_RECOVERED` y actualiza `last_seen_at`.
+
+## Salud Operativa
+
+`GET /health` revisa el proceso, la conexion a base de datos y el estado de migracion Alembic. En despliegues controlados se puede exigir que la DB este en la revision actual:
+
+```text
+HEALTH_REQUIRE_CURRENT_MIGRATION=true
+```
 
 ## Filtros Disponibles
 
