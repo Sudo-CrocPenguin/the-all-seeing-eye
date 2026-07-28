@@ -140,7 +140,10 @@ class QueuedAuditApiClient:
         )
 
     def _post_or_queue(self, request: QueuedRequest) -> dict[str, Any]:
-        self.flush()
+        if not self.flush():
+            self._queue.enqueue(request)
+            return {}
+
         try:
             return self._client.post_json(request.path, request.payload)
         except AgentTransportError as exc:
@@ -150,13 +153,14 @@ class QueuedAuditApiClient:
             self._schedule_next_flush()
             return {}
 
-    def flush(self) -> None:
-        if self._monotonic_clock() < self._next_flush_at:
-            return
-
+    def flush(self) -> bool:
         queued_requests = self._queue.read_all()
         if not queued_requests:
-            return
+            self._next_flush_at = 0.0
+            return True
+
+        if self._monotonic_clock() < self._next_flush_at:
+            return False
 
         remaining_requests: list[QueuedRequest] = []
         for index, request in enumerate(queued_requests):
@@ -168,10 +172,11 @@ class QueuedAuditApiClient:
                 remaining_requests.extend(queued_requests[index:])
                 self._queue.replace_all(remaining_requests)
                 self._schedule_next_flush()
-                return
+                return False
 
         self._queue.replace_all([])
         self._next_flush_at = 0.0
+        return True
 
     def _schedule_next_flush(self) -> None:
         self._next_flush_at = self._monotonic_clock() + self._retry_backoff_seconds

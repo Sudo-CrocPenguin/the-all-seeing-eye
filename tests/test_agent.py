@@ -507,6 +507,59 @@ def test_queued_client_flushes_pending_requests_before_new_send(tmp_path: Any) -
     assert queue.read_all() == []
 
 
+def test_queued_client_queues_current_request_when_pending_flush_is_blocked(
+    tmp_path: Any,
+) -> None:
+    queue_file = tmp_path / "agent-queue.jsonl"
+    queue = LocalAgentRequestQueue(queue_file)
+    queue.enqueue(
+        QueuedRequest(
+            path="/api/v1/devices",
+            payload={"device_id": "device-1"},
+        ),
+    )
+    post_client = RecordingFailingPostJsonClient()
+    clock = FakeMonotonicClock()
+    client = QueuedAuditApiClient(
+        post_client,
+        queue,
+        retry_backoff_seconds=30,
+        monotonic_clock=clock,
+    )
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+
+    lifecycle_response = client.send_lifecycle_event(
+        identity,
+        "AGENT_STARTED",
+        "2026-07-27T14:00:00+00:00",
+    )
+    network_response = client.send_network_event(
+        {
+            "device_id": "device-1",
+            "hostname": "DEV-LAPTOP-001",
+            "os_name": "Linux",
+            "agent_version": "0.1.0",
+            "occurred_at": "2026-07-27T14:00:01+00:00",
+            "protocol": "TCP",
+        },
+    )
+
+    assert lifecycle_response == {}
+    assert network_response == {}
+    assert [request[0] for request in post_client.requests] == ["/api/v1/devices"]
+    assert [request.path for request in queue.read_all()] == [
+        "/api/v1/devices",
+        "/api/v1/audit/lifecycle-events",
+        "/api/v1/audit/network-events",
+    ]
+
+
 def test_windows_service_metadata_is_corporate_and_visible() -> None:
     assert WINDOWS_SERVICE_NAME == "AllSeeingEyeAgent"
     assert WINDOWS_SERVICE_DISPLAY_NAME == "The All Seeing Eye Agent"
@@ -642,6 +695,15 @@ class RecordingPostJsonClient:
     def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
         self.requests.append((path, payload))
         return {"status": "ok"}
+
+
+class RecordingFailingPostJsonClient:
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, dict[str, object]]] = []
+
+    def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+        self.requests.append((path, payload))
+        raise AgentTransportError("backend no disponible")
 
 
 class FakeProcess:

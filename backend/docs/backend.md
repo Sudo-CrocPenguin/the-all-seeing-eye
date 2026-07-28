@@ -140,6 +140,8 @@ TRUSTED_PROXY_IPS=127.0.0.1,10.0.0.0/24
 
 Si `TRUSTED_PROXY_IPS` esta vacio, headers como `X-Forwarded-For`, `X-Real-IP` y `CF-Connecting-IP` se ignoran. Esto evita que un cliente directo falsifique la IP publica en evidencia.
 
+El campo persistido `public_ip` se calcula solo desde la conexion entrante o desde un proxy confiable. Si un agente envia `public_ip` en el JSON, ese valor no se usa como evidencia y, en eventos de red, queda separado en `request_metadata.agent_reported_public_ip`.
+
 ## Consultas De Auditoria
 
 Las consultas operativas requieren un token de auditoria separado del token de provisionamiento:

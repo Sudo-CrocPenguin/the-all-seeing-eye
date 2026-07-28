@@ -75,6 +75,8 @@ C:\ProgramData\TheAllSeeingEye\agent-queue.jsonl
 
 El agente usa esta cola para registro del dispositivo, eventos de ciclo de vida y eventos de red.
 
+Si existe cola pendiente y no se puede vaciar por backoff o fallo temporal, el agente no envia el request actual por delante. Lo agrega detras de los pendientes para conservar el orden, por ejemplo registro de dispositivo antes de `AGENT_STARTED`.
+
 Los errores temporales de red, HTTP `408`, `429` y respuestas `5xx` se consideran reintentables y se guardan en cola. Los errores fatales como token invalido, permisos insuficientes o payload rechazado (`401`, `403`, `422`) no se encolan indefinidamente: el agente los expone como fallo para corregir la configuracion o los datos enviados.
 
 ## Identidad Dinamica Y Resolucion De Destino

@@ -268,7 +268,7 @@ El proyecto se encuentra preparando beta local. La API cuenta con modelos de dom
 
 El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes enriquecidas con usuario local, PID, proceso, ejecutable y mapa local de servicios, guardar eventos pendientes en cola local cuando el backend no responde y desplegarse como servicio administrado en Linux/Windows.
 
-La beta exige que los eventos pertenezcan a dispositivos registrados, no encola errores fatales del backend y acepta IP publica desde headers de proxy solo cuando el proxy esta declarado en `TRUSTED_PROXY_IPS`.
+La beta exige que los eventos pertenezcan a dispositivos registrados, no encola errores fatales del backend, conserva orden causal en la cola local y acepta IP publica desde headers de proxy solo cuando el proxy esta declarado en `TRUSTED_PROXY_IPS`. El `public_ip` del JSON del agente no se usa como evidencia.
 
 ## Despliegue Del Agente Como Servicio
 

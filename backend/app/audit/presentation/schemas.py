@@ -56,6 +56,10 @@ class NetworkAuditEventRequest(BaseModel):
     response_metadata: dict[str, str] = Field(default_factory=dict)
 
     def to_command(self, observed_public_ip: str | None = None) -> IngestNetworkAuditEventCommand:
+        request_metadata = dict(self.request_metadata)
+        if self.public_ip:
+            request_metadata["agent_reported_public_ip"] = self.public_ip
+
         return IngestNetworkAuditEventCommand(
             occurred_at=self.occurred_at,
             device_id=self.device_id,
@@ -64,7 +68,7 @@ class NetworkAuditEventRequest(BaseModel):
             agent_version=self.agent_version,
             protocol=self.protocol,
             local_ip=self.local_ip,
-            public_ip=self.public_ip or observed_public_ip,
+            public_ip=observed_public_ip,
             destination_host=self.destination_host,
             destination_ip=self.destination_ip,
             destination_port=self.destination_port,
@@ -79,7 +83,7 @@ class NetworkAuditEventRequest(BaseModel):
             process_name=self.process_name,
             process_executable=self.process_executable,
             service_name=self.service_name,
-            request_metadata=self.request_metadata,
+            request_metadata=request_metadata,
             response_metadata=self.response_metadata,
         )
 
@@ -165,7 +169,7 @@ class AgentLifecycleEventRequest(BaseModel):
             hostname=self.hostname,
             agent_version=self.agent_version,
             local_ip=self.local_ip,
-            public_ip=self.public_ip or observed_public_ip,
+            public_ip=observed_public_ip,
             reason=self.reason,
             last_seen_at=self.last_seen_at,
             detected_at=self.detected_at,

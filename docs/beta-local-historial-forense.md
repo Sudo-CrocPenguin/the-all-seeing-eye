@@ -97,6 +97,8 @@ TRUSTED_PROXY_IPS=
 
 `TRUSTED_PROXY_IPS` define que proxies pueden aportar headers como `X-Forwarded-For`, `X-Real-IP` o `CF-Connecting-IP`. Si queda vacio, el backend ignora esos headers y toma la IP observada solo desde la conexion entrante cuando es publica.
 
+La evidencia `public_ip` nunca se toma del JSON enviado por el agente. Si el agente reporta una IP publica propia, se conserva aparte como `request_metadata.agent_reported_public_ip` en eventos de red.
+
 ## Consulta Por Ventana De Incidente
 
 Consulta directa por rango:
