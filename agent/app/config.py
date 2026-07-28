@@ -14,6 +14,19 @@ def _get_int(name: str, default: int) -> int:
     return int(raw_value)
 
 
+def _get_bool(name: str, default: bool) -> bool:
+    raw_value = getenv(name)
+    if raw_value is None or raw_value.strip() == "":
+        return default
+
+    normalized = raw_value.strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on", "si"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+    raise ValueError(f"{name} debe ser booleano")
+
+
 def _get_path(name: str) -> Path | None:
     raw_value = getenv(name)
     if raw_value is None or raw_value.strip() == "":
@@ -34,6 +47,7 @@ class AgentSettings:
     request_retry_backoff_seconds: int = 30
     queue_file: Path = Path.home() / ".local/state/the-all-seeing-eye/agent-queue.jsonl"
     service_map_file: Path | None = None
+    reverse_dns_enabled: bool = True
 
     @classmethod
     def from_environment(cls, env_file: str | Path | None = None) -> "AgentSettings":
@@ -59,6 +73,7 @@ class AgentSettings:
                 ),
             ),
             service_map_file=_get_path("AGENT_SERVICE_MAP_FILE"),
+            reverse_dns_enabled=_get_bool("AGENT_REVERSE_DNS_ENABLED", True),
         )
 
 
