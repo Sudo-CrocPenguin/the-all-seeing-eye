@@ -19,6 +19,7 @@ Variables principales:
 
 ```text
 AGENT_BACKEND_URL=http://127.0.0.1:8000
+AGENT_ENV_FILE=
 AGENT_DEVICE_ID=
 AGENT_TOKEN=
 AGENT_TOKEN_HEADER=X-Agent-Token
@@ -31,6 +32,13 @@ AGENT_REQUEST_TIMEOUT_SECONDS=10
 `AGENT_DEVICE_ID` puede quedar vacio. En ese caso el agente genera un identificador estable a partir de datos tecnicos del equipo.
 
 `AGENT_TOKEN` es obligatorio para reportar al backend. Se obtiene desde el endpoint de provision del backend y debe corresponder al `device_id` del equipo.
+
+`AGENT_ENV_FILE` permite apuntar a un archivo de configuracion `KEY=VALUE`. Si no se define, el agente busca automaticamente:
+
+```text
+/etc/the-all-seeing-eye/agent.env
+C:\ProgramData\TheAllSeeingEye\agent.env
+```
 
 ## Ejecucion
 
@@ -59,6 +67,89 @@ Ejecutar en modo continuo:
 .venv/bin/python -m agent.app.cli --backend-url http://127.0.0.1:8000
 ```
 
+Ejecutar usando archivo de configuracion:
+
+```bash
+.venv/bin/python -m agent.app.cli --env-file /etc/the-all-seeing-eye/agent.env
+```
+
+## Servicio Linux Con systemd
+
+### Que Es
+
+Es una unidad systemd que ejecuta el agente como proceso administrado del sistema operativo. La unidad no oculta el agente: aparece en `systemctl`, logs del sistema y herramientas normales de administracion.
+
+### Para Que Sirve
+
+- Arrancar el agente automaticamente con el equipo.
+- Reiniciar el agente si falla.
+- Enviar apagados controlados cuando IT detiene el servicio.
+- Mantener una configuracion persistente fuera de la terminal.
+
+### Como Funciona
+
+El instalador copia el proyecto a `/opt/the-all-seeing-eye`, crea un entorno virtual Python, instala el paquete y registra la unidad `all-seeing-eye-agent.service`.
+
+Instalar:
+
+```bash
+sudo agent/deploy/linux/install-systemd.sh
+```
+
+Configurar token y backend:
+
+```bash
+sudo nano /etc/the-all-seeing-eye/agent.env
+```
+
+Operar el servicio:
+
+```bash
+sudo systemctl status all-seeing-eye-agent
+sudo systemctl stop all-seeing-eye-agent
+sudo systemctl start all-seeing-eye-agent
+sudo journalctl -u all-seeing-eye-agent -f
+```
+
+Al detenerse con `systemctl stop`, systemd envia `SIGTERM`; el agente registra `AGENT_STOPPING` y `AGENT_STOPPED` antes de terminar.
+
+## Servicio Windows
+
+### Que Es
+
+Es un Windows Service basado en `pywin32` que ejecuta el mismo runner del agente. El servicio queda visible como `AllSeeingEyeAgent` en la consola de servicios y en `Get-Service`.
+
+### Para Que Sirve
+
+- Arrancar el agente con Windows.
+- Administrarlo con herramientas corporativas.
+- Registrar detenciones e inicios del servicio.
+- Mantener configuracion en `C:\ProgramData\TheAllSeeingEye\agent.env`.
+
+### Como Funciona
+
+Instalar desde PowerShell como administrador:
+
+```powershell
+.\agent\deploy\windows\install-service.ps1 -BackendUrl "http://backend:8000" -AgentToken "token-del-agente"
+```
+
+Operar el servicio:
+
+```powershell
+Get-Service -Name AllSeeingEyeAgent
+Stop-Service -Name AllSeeingEyeAgent
+Start-Service -Name AllSeeingEyeAgent
+```
+
+Desinstalar:
+
+```powershell
+.\agent\deploy\windows\uninstall-service.ps1
+```
+
+Al detenerse con `Stop-Service`, el wrapper solicita apagado al runner; el agente reporta `AGENT_STOPPING` y `AGENT_STOPPED`.
+
 ## Que Reporta En El MVP
 
 - Registro del dispositivo en el backend.
@@ -75,3 +166,4 @@ Los eventos de red incluyen IP local, IP destino, puerto destino, protocolo, int
 - No interpreta metodo HTTP ni status code.
 - No intercepta TLS.
 - No intenta ocultarse ni impedir que IT lo administre.
+- Si el proceso se mata forzadamente o el equipo pierde energia/red, no puede enviar apagado limpio; esa ausencia debe detectarse en backend con heartbeats perdidos.

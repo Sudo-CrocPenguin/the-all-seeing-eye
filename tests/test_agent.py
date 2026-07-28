@@ -9,9 +9,16 @@ from agent.app.device_identity import (
     NetworkInterface,
     _machine_fingerprint,
 )
+from agent.app.env_file import parse_environment_lines
 from agent.app.network_collector import NetworkConnectionCollector, ObservedNetworkConnection
 from agent.app.runner import AgentConfigurationError, AgentRunner
 from agent.app.transport import AuditApiClient
+from agent.app.windows_service import (
+    WINDOWS_SERVICE_DESCRIPTION,
+    WINDOWS_SERVICE_DISPLAY_NAME,
+    WINDOWS_SERVICE_NAME,
+    load_pywin32_modules,
+)
 
 
 def test_agent_settings_from_environment(monkeypatch: Any) -> None:
@@ -30,6 +37,50 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     assert settings.agent_token_header == "X-Custom-Agent-Token"
     assert settings.heartbeat_interval_seconds == 30
     assert settings.scan_interval_seconds == 5
+
+
+def test_agent_settings_from_env_file(tmp_path: Any, monkeypatch: Any) -> None:
+    monkeypatch.delenv("AGENT_BACKEND_URL", raising=False)
+    monkeypatch.delenv("AGENT_DEVICE_ID", raising=False)
+    monkeypatch.delenv("AGENT_TOKEN", raising=False)
+    env_file = tmp_path / "agent.env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "AGENT_BACKEND_URL=http://backend.local:8000/",
+                "AGENT_DEVICE_ID=device-file",
+                "AGENT_TOKEN=token-file",
+                "AGENT_HEARTBEAT_INTERVAL_SECONDS=20",
+            ],
+        ),
+        encoding="utf-8",
+    )
+
+    settings = AgentSettings.from_environment(env_file)
+
+    assert settings.backend_url == "http://backend.local:8000"
+    assert settings.device_id == "device-file"
+    assert settings.agent_token == "token-file"
+    assert settings.heartbeat_interval_seconds == 20
+
+
+def test_environment_variables_override_env_file(tmp_path: Any, monkeypatch: Any) -> None:
+    monkeypatch.setenv("AGENT_BACKEND_URL", "http://env.local:8000")
+    env_file = tmp_path / "agent.env"
+    env_file.write_text("AGENT_BACKEND_URL=http://file.local:8000\n", encoding="utf-8")
+
+    settings = AgentSettings.from_environment(env_file)
+
+    assert settings.backend_url == "http://env.local:8000"
+
+
+def test_parse_environment_lines_rejects_invalid_variable() -> None:
+    try:
+        parse_environment_lines(["AGENT TOKEN=invalid"])
+    except ValueError as exc:
+        assert "variable invalida" in str(exc)
+    else:
+        raise AssertionError("El archivo env debe rechazar nombres invalidos")
 
 
 def test_device_identity_uses_configured_id_and_handles_interface_permission(
@@ -172,6 +223,26 @@ def test_api_client_sends_agent_token_header(monkeypatch: Any) -> None:
     client.register_device(identity)
 
     assert captured_headers["X-agent-token"] == "agent-token"
+
+
+def test_windows_service_metadata_is_corporate_and_visible() -> None:
+    assert WINDOWS_SERVICE_NAME == "AllSeeingEyeAgent"
+    assert WINDOWS_SERVICE_DISPLAY_NAME == "The All Seeing Eye Agent"
+    assert "corporativo autorizado" in WINDOWS_SERVICE_DESCRIPTION
+
+
+def test_windows_service_reports_missing_pywin32(monkeypatch: Any) -> None:
+    def raise_import_error(_name: str) -> object:
+        raise ImportError("missing")
+
+    monkeypatch.setattr("agent.app.windows_service.importlib.import_module", raise_import_error)
+
+    try:
+        load_pywin32_modules()
+    except RuntimeError as exc:
+        assert "pywin32" in str(exc)
+    else:
+        raise AssertionError("El servicio Windows debe explicar que falta pywin32")
 
 
 class FakeIdentityCollector:
