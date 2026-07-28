@@ -35,6 +35,8 @@ El backend conserva esos campos en `NetworkAuditEvent` y expone una consulta de 
 - Eventos de red.
 - Eventos de ciclo de vida del agente.
 
+Tambien expone una consulta unificada por equipo en `/api/v1/audit/device-movements`. Esa consulta devuelve conexiones y eventos del agente en una sola linea temporal, lista para revisar “todo lo que hizo el computador” dentro de un rango.
+
 ## Mapa Local De Servicios
 
 Para que la app muestre `Base de datos produccion` en vez de solo `10.0.0.25:5432`, el agente puede leer un archivo JSON local configurado con `AGENT_SERVICE_MAP_FILE`.
@@ -103,6 +105,32 @@ Estados de equipo en la respuesta:
 - `ACTIVE_IN_WINDOW`: el equipo genero evento de red o ciclo de vida dentro de la ventana.
 - `WITHOUT_REPORT_BEFORE_WINDOW`: el equipo ya existia, pero su ultimo reporte fue anterior a la ventana.
 - `SEEN_AFTER_WINDOW`: el equipo fue visto despues, pero no hay evento directo dentro de la ventana.
+
+## Consulta De Todos Los Movimientos De Un Equipo
+
+```bash
+curl -H "X-Auditor-Token: dev-auditor-token" \
+  "http://localhost:8000/api/v1/audit/device-movements?device_id=DEV-LAPTOP-042&limit=500"
+```
+
+Ejemplo de fila:
+
+```json
+{
+  "occurred_at": "2026-07-28T18:04:59Z",
+  "movement_type": "NETWORK_CONNECTION",
+  "device_id": "DEV-LAPTOP-042",
+  "summary": "Base de datos produccion:5432",
+  "local_username": "maria.gomez",
+  "process_name": "psql",
+  "destination_host": "db-produccion.local",
+  "destination_ip": "10.0.0.25",
+  "destination_port": 5432,
+  "connection_status": "ESTABLISHED"
+}
+```
+
+La base local tambien crea la vista `device_movements` para revisar el mismo historial directo en SQL.
 
 ## Flujo De Prueba En Dispositivo
 
