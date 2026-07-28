@@ -411,6 +411,70 @@ async def test_query_incident_window_groups_activity_and_missing_devices(
 
 
 @pytest.mark.anyio
+async def test_query_incident_window_active_devices_do_not_depend_on_event_limit() -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
+        second_agent_token = await provision_agent_token(client, device_id="device-2")
+        await register_test_device(client, agent_token=agent_token)
+        await register_test_device(
+            client,
+            agent_token=second_agent_token,
+            device_id="device-2",
+            hostname="DEV-LAPTOP-002",
+        )
+
+        first_response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "occurred_at": "2026-07-27T14:04:00+00:00",
+                "device_id": "device-1",
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_ip": "10.0.0.25",
+                "destination_port": 5432,
+            },
+        )
+        assert first_response.status_code == 201
+        second_response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": second_agent_token},
+            json={
+                "occurred_at": "2026-07-27T14:03:00+00:00",
+                "device_id": "device-2",
+                "hostname": "HOSTNAME-RECLAMADO",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.11",
+                "destination_ip": "10.0.0.25",
+                "destination_port": 5432,
+            },
+        )
+        assert second_response.status_code == 201
+
+        response = await client.get(
+            "/api/v1/audit/incident-window",
+            headers=auditor_headers(),
+            params={
+                "from": "2026-07-27T14:00:00+00:00",
+                "to": "2026-07-27T14:15:00+00:00",
+                "limit": 1,
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    active_device_ids = {device["device_id"] for device in body["active_devices"]}
+    assert active_device_ids == {"device-1", "device-2"}
+    assert len(body["network_events"]) == 1
+
+
+@pytest.mark.anyio
 async def test_query_device_movements_combines_network_and_lifecycle_events() -> None:
     transport = httpx.ASGITransport(app=create_test_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:

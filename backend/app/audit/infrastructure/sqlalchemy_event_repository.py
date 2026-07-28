@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
@@ -138,11 +138,16 @@ class SQLAlchemyNetworkAuditEventRepository:
         models = self._session.scalars(statement).all()
         return [_network_model_to_domain(model) for model in models]
 
+    def list_device_ids(self, filters: NetworkAuditEventFilters) -> set[str]:
+        statement = select(NetworkAuditEventModel.device_id).distinct()
+        statement = self._apply_filters(statement, filters)
+        return set(self._session.scalars(statement).all())
+
     def _apply_filters(
         self,
-        statement: Select[tuple[NetworkAuditEventModel]],
+        statement: Select[Any],
         filters: NetworkAuditEventFilters,
-    ) -> Select[tuple[NetworkAuditEventModel]]:
+    ) -> Select[Any]:
         if filters.device_id:
             statement = statement.where(NetworkAuditEventModel.device_id == filters.device_id)
         if filters.local_ip:
@@ -189,11 +194,16 @@ class SQLAlchemyAgentLifecycleEventRepository:
         models = self._session.scalars(statement).all()
         return [_lifecycle_model_to_domain(model) for model in models]
 
+    def list_device_ids(self, filters: AgentLifecycleEventFilters) -> set[str]:
+        statement = select(AgentLifecycleEventModel.device_id).distinct()
+        statement = self._apply_filters(statement, filters)
+        return set(self._session.scalars(statement).all())
+
     def _apply_filters(
         self,
-        statement: Select[tuple[AgentLifecycleEventModel]],
+        statement: Select[Any],
         filters: AgentLifecycleEventFilters,
-    ) -> Select[tuple[AgentLifecycleEventModel]]:
+    ) -> Select[Any]:
         if filters.device_id:
             statement = statement.where(AgentLifecycleEventModel.device_id == filters.device_id)
         if filters.event_type:
