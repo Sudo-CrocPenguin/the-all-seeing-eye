@@ -59,6 +59,8 @@ def main() -> None:
         scan_interval_seconds=args.scan_interval or settings.scan_interval_seconds,
         network_event_dedup_seconds=settings.network_event_dedup_seconds,
         request_timeout_seconds=settings.request_timeout_seconds,
+        request_retry_backoff_seconds=settings.request_retry_backoff_seconds,
+        queue_file=settings.queue_file,
     )
 
     if args.identify:

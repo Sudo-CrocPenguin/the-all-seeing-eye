@@ -8,6 +8,7 @@ from typing import Any, Protocol
 from agent.app.clock import to_iso, utc_now
 from agent.app.config import AgentSettings
 from agent.app.device_identity import DeviceIdentity, DeviceIdentityCollector
+from agent.app.local_queue import QueuedAuditApiClient
 from agent.app.network_collector import NetworkConnectionCollector, ObservedNetworkConnection
 from agent.app.transport import AuditApiClient
 
@@ -68,12 +69,7 @@ class AgentRunner:
         self._settings = settings
         self._identity_collector = identity_collector or DeviceIdentityCollector(settings)
         self._network_collector = network_collector or NetworkConnectionCollector()
-        self._api_client = api_client or AuditApiClient(
-            settings.backend_url,
-            agent_token=self._require_agent_token(settings),
-            agent_token_header=settings.agent_token_header,
-            timeout_seconds=settings.request_timeout_seconds,
-        )
+        self._api_client = api_client or self._build_api_client(settings)
         self._stop_requested = stop_signal or Event()
         self._monotonic_clock = monotonic_clock or monotonic
         self._last_sent_network_events: dict[str, datetime] = {}
@@ -117,6 +113,20 @@ class AgentRunner:
         if not settings.agent_token:
             raise AgentConfigurationError("AGENT_TOKEN es obligatorio para reportar al backend")
         return settings.agent_token
+
+    @classmethod
+    def _build_api_client(cls, settings: AgentSettings) -> AgentApiClient:
+        client = AuditApiClient(
+            settings.backend_url,
+            agent_token=cls._require_agent_token(settings),
+            agent_token_header=settings.agent_token_header,
+            timeout_seconds=settings.request_timeout_seconds,
+        )
+        return QueuedAuditApiClient.from_audit_api_client(
+            client,
+            settings.queue_file,
+            retry_backoff_seconds=settings.request_retry_backoff_seconds,
+        )
 
     def _bootstrap(self) -> DeviceIdentity:
         identity = self._identity_collector.collect()

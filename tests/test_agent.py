@@ -10,9 +10,10 @@ from agent.app.device_identity import (
     _machine_fingerprint,
 )
 from agent.app.env_file import parse_environment_lines
+from agent.app.local_queue import LocalAgentRequestQueue, QueuedAuditApiClient, QueuedRequest
 from agent.app.network_collector import NetworkConnectionCollector, ObservedNetworkConnection
 from agent.app.runner import AgentConfigurationError, AgentRunner
-from agent.app.transport import AuditApiClient
+from agent.app.transport import AgentTransportError, AuditApiClient
 from agent.app.windows_service import (
     WINDOWS_SERVICE_DESCRIPTION,
     WINDOWS_SERVICE_DISPLAY_NAME,
@@ -28,6 +29,8 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     monkeypatch.setenv("AGENT_TOKEN_HEADER", "X-Custom-Agent-Token")
     monkeypatch.setenv("AGENT_HEARTBEAT_INTERVAL_SECONDS", "30")
     monkeypatch.setenv("AGENT_SCAN_INTERVAL_SECONDS", "5")
+    monkeypatch.setenv("AGENT_REQUEST_RETRY_BACKOFF_SECONDS", "7")
+    monkeypatch.setenv("AGENT_QUEUE_FILE", "/tmp/the-all-seeing-eye-agent-queue.jsonl")
 
     settings = AgentSettings.from_environment()
 
@@ -37,6 +40,8 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     assert settings.agent_token_header == "X-Custom-Agent-Token"
     assert settings.heartbeat_interval_seconds == 30
     assert settings.scan_interval_seconds == 5
+    assert settings.request_retry_backoff_seconds == 7
+    assert str(settings.queue_file) == "/tmp/the-all-seeing-eye-agent-queue.jsonl"
 
 
 def test_agent_settings_from_env_file(tmp_path: Any, monkeypatch: Any) -> None:
@@ -271,6 +276,63 @@ def test_api_client_sends_agent_token_header(monkeypatch: Any) -> None:
     assert captured_headers["X-agent-token"] == "agent-token"
 
 
+def test_queued_client_persists_request_when_backend_fails(tmp_path: Any) -> None:
+    queue_file = tmp_path / "agent-queue.jsonl"
+    client = QueuedAuditApiClient(
+        FailingPostJsonClient(),
+        LocalAgentRequestQueue(queue_file),
+        retry_backoff_seconds=30,
+    )
+
+    response = client.send_network_event(
+        {
+            "device_id": "device-1",
+            "hostname": "DEV-LAPTOP-001",
+            "os_name": "Linux",
+            "agent_version": "0.1.0",
+            "occurred_at": "2026-07-27T14:00:00+00:00",
+            "protocol": "TCP",
+        },
+    )
+
+    assert response == {}
+    queued_requests = LocalAgentRequestQueue(queue_file).read_all()
+    assert len(queued_requests) == 1
+    assert queued_requests[0].path == "/api/v1/audit/network-events"
+    assert queued_requests[0].payload["device_id"] == "device-1"
+
+
+def test_queued_client_flushes_pending_requests_before_new_send(tmp_path: Any) -> None:
+    queue_file = tmp_path / "agent-queue.jsonl"
+    queue = LocalAgentRequestQueue(queue_file)
+    queue.enqueue(
+        QueuedRequest(
+            path="/api/v1/audit/lifecycle-events",
+            payload={"event_type": "AGENT_HEARTBEAT"},
+        ),
+    )
+    post_client = RecordingPostJsonClient()
+    client = QueuedAuditApiClient(post_client, queue, retry_backoff_seconds=30)
+
+    response = client.send_network_event(
+        {
+            "device_id": "device-1",
+            "hostname": "DEV-LAPTOP-001",
+            "os_name": "Linux",
+            "agent_version": "0.1.0",
+            "occurred_at": "2026-07-27T14:00:00+00:00",
+            "protocol": "TCP",
+        },
+    )
+
+    assert response == {"status": "ok"}
+    assert [request[0] for request in post_client.requests] == [
+        "/api/v1/audit/lifecycle-events",
+        "/api/v1/audit/network-events",
+    ]
+    assert queue.read_all() == []
+
+
 def test_windows_service_metadata_is_corporate_and_visible() -> None:
     assert WINDOWS_SERVICE_NAME == "AllSeeingEyeAgent"
     assert WINDOWS_SERVICE_DISPLAY_NAME == "The All Seeing Eye Agent"
@@ -331,6 +393,20 @@ class FakeAuditApiClient:
     def send_network_event(self, payload: dict[str, object]) -> dict[str, object]:
         self.network_events.append(payload)
         return {}
+
+
+class FailingPostJsonClient:
+    def post_json(self, _path: str, _payload: dict[str, object]) -> dict[str, object]:
+        raise AgentTransportError("backend no disponible")
+
+
+class RecordingPostJsonClient:
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, dict[str, object]]] = []
+
+    def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+        self.requests.append((path, payload))
+        return {"status": "ok"}
 
 
 class FakeMonotonicClock:
