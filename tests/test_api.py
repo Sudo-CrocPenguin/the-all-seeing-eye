@@ -145,6 +145,59 @@ async def test_ingest_and_search_network_events() -> None:
 
 
 @pytest.mark.anyio
+async def test_ingest_network_event_ignores_loopback_as_public_ip() -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
+        response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "occurred_at": "2026-07-27T14:00:00-05:00",
+                "device_id": "device-1",
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_ip": "10.0.0.25",
+                "destination_port": 5432,
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["public_ip"] is None
+
+
+@pytest.mark.anyio
+async def test_ingest_network_event_uses_forwarded_public_ip() -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
+        response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={
+                "X-Agent-Token": agent_token,
+                "X-Forwarded-For": "192.168.1.10, 8.8.8.8",
+            },
+            json={
+                "occurred_at": "2026-07-27T14:00:00-05:00",
+                "device_id": "device-1",
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_ip": "10.0.0.25",
+                "destination_port": 5432,
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["public_ip"] == "8.8.8.8"
+
+
+@pytest.mark.anyio
 async def test_network_event_updates_device_last_seen_at(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

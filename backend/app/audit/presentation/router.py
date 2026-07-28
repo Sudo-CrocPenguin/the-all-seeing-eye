@@ -63,16 +63,45 @@ _LIFECYCLE_EVENTS_THAT_DETECT_RECOVERY = {
     AgentLifecycleEventTypeRequest.CONFIG_CHANGED,
 }
 
+_PUBLIC_IP_HEADERS = (
+    "X-Forwarded-For",
+    "X-Real-IP",
+    "CF-Connecting-IP",
+)
+
 
 def _observed_public_ip(request: Request) -> str | None:
+    for header_name in _PUBLIC_IP_HEADERS:
+        public_ip = _first_public_ip(request.headers.get(header_name))
+        if public_ip is not None:
+            return public_ip
+
     if request.client is None:
         return None
-    host = request.client.host
+
+    return _public_ip_or_none(request.client.host)
+
+
+def _first_public_ip(raw_value: str | None) -> str | None:
+    if raw_value is None:
+        return None
+
+    for candidate in raw_value.split(","):
+        public_ip = _public_ip_or_none(candidate)
+        if public_ip is not None:
+            return public_ip
+
+    return None
+
+
+def _public_ip_or_none(raw_value: str) -> str | None:
     try:
-        ip_address(host)
+        parsed_ip = ip_address(raw_value.strip())
     except ValueError:
         return None
-    return host
+    if not parsed_ip.is_global:
+        return None
+    return str(parsed_ip)
 
 
 def _record_agent_activity(
