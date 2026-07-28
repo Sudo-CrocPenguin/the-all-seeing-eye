@@ -80,8 +80,14 @@ class ObservedNetworkConnection:
 
 
 class NetworkConnectionCollector:
-    def __init__(self, service_map: ServiceMap | None = None) -> None:
+    def __init__(
+        self,
+        service_map: ServiceMap | None = None,
+        *,
+        reverse_dns_enabled: bool = True,
+    ) -> None:
         self._service_map = service_map or ServiceMap()
+        self._reverse_dns_enabled = reverse_dns_enabled
         self._reverse_dns_cache: dict[str, str | None] = {}
 
     def collect(self, identity: DeviceIdentity) -> list[ObservedNetworkConnection]:
@@ -173,7 +179,7 @@ class NetworkConnectionCollector:
         return username if isinstance(username, str) and username else None
 
     def _reverse_dns(self, destination_ip: str | None) -> str | None:
-        if destination_ip is None:
+        if destination_ip is None or not self._reverse_dns_enabled:
             return None
         if destination_ip in self._reverse_dns_cache:
             return self._reverse_dns_cache[destination_ip]

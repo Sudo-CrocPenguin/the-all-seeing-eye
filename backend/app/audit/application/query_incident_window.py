@@ -68,24 +68,31 @@ class QueryIncidentWindowUseCase:
             raise DomainValidationError("from no puede ser mayor que to")
 
         limit = max(command.limit, 1)
+        network_filters = NetworkAuditEventFilters(
+            from_datetime=from_datetime,
+            to_datetime=to_datetime,
+            limit=limit,
+        )
+        lifecycle_filters = AgentLifecycleEventFilters(
+            from_datetime=from_datetime,
+            to_datetime=to_datetime,
+            limit=limit,
+        )
         network_events = self._network_event_repository.search(
-            NetworkAuditEventFilters(
-                from_datetime=from_datetime,
-                to_datetime=to_datetime,
-                limit=limit,
-            ),
+            network_filters,
         )
         lifecycle_events = self._lifecycle_event_repository.search(
-            AgentLifecycleEventFilters(
-                from_datetime=from_datetime,
-                to_datetime=to_datetime,
-                limit=limit,
-            ),
+            lifecycle_filters,
+        )
+        active_device_ids = (
+            self._network_event_repository.list_device_ids(network_filters)
+            | self._lifecycle_event_repository.list_device_ids(lifecycle_filters)
         )
         device_statuses = _build_device_statuses(
             devices=self._device_repository.list_all(),
             network_events=network_events,
             lifecycle_events=lifecycle_events,
+            active_device_ids=active_device_ids,
             from_datetime=from_datetime,
             to_datetime=to_datetime,
         )
@@ -118,31 +125,28 @@ def _build_device_statuses(
     devices: list[Device],
     network_events: list[NetworkAuditEvent],
     lifecycle_events: list[AgentLifecycleEvent],
+    active_device_ids: set[str],
     from_datetime: datetime,
     to_datetime: datetime,
 ) -> list[IncidentDeviceStatus]:
     combined_events = _combine_events(network_events, lifecycle_events)
-    device_ids_with_events = {
-        event.device_id
-        for event in combined_events
-    }
     events_by_device = _latest_event_by_device(combined_events)
     registered_devices = {device.device_id: device for device in devices}
-    device_ids = set(registered_devices) | device_ids_with_events
+    device_ids = set(registered_devices) | active_device_ids
 
     statuses = [
         _build_device_status(
             device_id=device_id,
             device=registered_devices.get(device_id),
             latest_event=events_by_device.get(device_id),
-            has_window_event=device_id in device_ids_with_events,
+            has_window_event=device_id in active_device_ids,
             from_datetime=from_datetime,
         )
         for device_id in device_ids
         if _is_relevant_device(
             registered_devices.get(device_id),
             device_id,
-            device_ids_with_events,
+            active_device_ids,
             to_datetime,
         )
     ]
@@ -201,10 +205,10 @@ def _build_device_status(
 def _is_relevant_device(
     device: Device | None,
     device_id: str,
-    device_ids_with_events: set[str],
+    active_device_ids: set[str],
     to_datetime: datetime,
 ) -> bool:
-    if device_id in device_ids_with_events:
+    if device_id in active_device_ids:
         return True
     if device is None:
         return False

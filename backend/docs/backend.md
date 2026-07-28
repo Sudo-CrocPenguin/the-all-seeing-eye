@@ -130,6 +130,16 @@ POST /api/v1/audit/lifecycle-events
 
 El token no se guarda en claro. El backend guarda hash y sal en la tabla `agent_credentials`.
 
+Los eventos de auditoria solo se aceptan para dispositivos ya registrados en `POST /api/v1/devices`. Aunque el payload incluya `hostname`, `os_name` o `agent_version`, el backend usa los valores registrados del dispositivo para esos campos estables y evita confiar en metadatos reclamados por el agente.
+
+La IP publica observada se toma del socket de entrada o de headers de proxy solo si la solicitud llega desde un proxy confiable configurado en:
+
+```text
+TRUSTED_PROXY_IPS=127.0.0.1,10.0.0.0/24
+```
+
+Si `TRUSTED_PROXY_IPS` esta vacio, headers como `X-Forwarded-For`, `X-Real-IP` y `CF-Connecting-IP` se ignoran. Esto evita que un cliente directo falsifique la IP publica en evidencia.
+
 ## Consultas De Auditoria
 
 Las consultas operativas requieren un token de auditoria separado del token de provisionamiento:
@@ -181,6 +191,10 @@ FROM device_movements
 WHERE device_id = 'DEV-LAPTOP-042'
 ORDER BY occurred_at DESC;
 ```
+
+### Ventana De Incidente
+
+La consulta `/api/v1/audit/incident-window` calcula los equipos activos con una busqueda agregada independiente del `limit` usado para devolver eventos. Esto evita que una ventana con muchos eventos o un limite bajo oculte equipos que si reportaron dentro del rango.
 
 ### Provisionar Token
 

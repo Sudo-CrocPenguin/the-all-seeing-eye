@@ -35,6 +35,7 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     monkeypatch.setenv("AGENT_REQUEST_RETRY_BACKOFF_SECONDS", "7")
     monkeypatch.setenv("AGENT_QUEUE_FILE", "/tmp/the-all-seeing-eye-agent-queue.jsonl")
     monkeypatch.setenv("AGENT_SERVICE_MAP_FILE", "/tmp/the-all-seeing-eye-service-map.json")
+    monkeypatch.setenv("AGENT_REVERSE_DNS_ENABLED", "false")
 
     settings = AgentSettings.from_environment()
 
@@ -47,6 +48,7 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     assert settings.request_retry_backoff_seconds == 7
     assert str(settings.queue_file) == "/tmp/the-all-seeing-eye-agent-queue.jsonl"
     assert str(settings.service_map_file) == "/tmp/the-all-seeing-eye-service-map.json"
+    assert not settings.reverse_dns_enabled
 
 
 def test_agent_settings_from_env_file(tmp_path: Any, monkeypatch: Any) -> None:
@@ -197,6 +199,38 @@ def test_network_collector_builds_connection_payload(monkeypatch: Any) -> None:
     assert payload["service_name"] == "Servicio HTTPS de ejemplo"
 
 
+def test_network_collector_can_skip_reverse_dns(monkeypatch: Any) -> None:
+    raw_connection = SimpleNamespace(
+        type=1,
+        laddr=SimpleNamespace(ip="192.168.1.10", port=51515),
+        raddr=SimpleNamespace(ip="93.184.216.34", port=443),
+        status="ESTABLISHED",
+        pid=None,
+    )
+    monkeypatch.setattr(
+        "agent.app.network_collector.psutil.net_connections",
+        lambda kind: [raw_connection],
+    )
+    monkeypatch.setattr("agent.app.network_collector.psutil.users", lambda: [])
+
+    def fail_reverse_dns(_destination_ip: str) -> tuple[str, list[str], list[str]]:
+        raise AssertionError("reverse DNS no debe ejecutarse cuando esta desactivado")
+
+    monkeypatch.setattr("agent.app.network_collector.gethostbyaddr", fail_reverse_dns)
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+
+    connections = NetworkConnectionCollector(reverse_dns_enabled=False).collect(identity)
+
+    assert len(connections) == 1
+    assert connections[0].destination_host is None
+
+
 def test_runner_once_reports_lifecycle_and_network_event() -> None:
     identity = DeviceIdentity(
         device_id="device-1",
@@ -283,6 +317,66 @@ def test_runner_forever_uses_scan_interval_independently_from_heartbeat() -> Non
     assert stop_signal.waits == [3.0, 3.0, 3.0, 1.0]
 
 
+def test_runner_forever_refreshes_identity_when_network_metadata_changes() -> None:
+    first_identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(
+            NetworkInterface(
+                name="eth0",
+                local_ip="192.168.1.10",
+                mac_address="00:11:22:33:44:55",
+                is_up=True,
+            ),
+        ),
+    )
+    updated_identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(
+            NetworkInterface(
+                name="tun0",
+                local_ip="10.8.0.10",
+                mac_address=None,
+                is_up=True,
+            ),
+        ),
+    )
+    api_client = FakeAuditApiClient()
+    network_collector = IdentityAwareNetworkCollector()
+    clock = FakeMonotonicClock()
+    stop_signal = FakeStopSignal(clock, stop_after_waits=2)
+    runner = SignalFreeAgentRunner(
+        AgentSettings(
+            heartbeat_interval_seconds=10,
+            scan_interval_seconds=3,
+            network_event_dedup_seconds=0,
+        ),
+        identity_collector=CyclingIdentityCollector([first_identity, updated_identity]),
+        network_collector=network_collector,
+        api_client=api_client,
+        stop_signal=stop_signal,
+        monotonic_clock=clock,
+    )
+
+    runner.run_forever()
+
+    assert api_client.registered_devices == ["device-1", "device-1"]
+    assert api_client.lifecycle_events == [
+        "AGENT_STARTED",
+        "AGENT_CONFIG_CHANGED",
+        "AGENT_STOPPING",
+        "AGENT_STOPPED",
+    ]
+    assert network_collector.seen_identities == [updated_identity]
+    assert api_client.network_events[0]["local_ip"] == "10.8.0.10"
+    assert api_client.network_events[0]["network_interface"] == "tun0"
+
+
 def test_runner_requires_agent_token_when_using_real_client() -> None:
     try:
         AgentRunner(AgentSettings())
@@ -355,6 +449,33 @@ def test_queued_client_persists_request_when_backend_fails(tmp_path: Any) -> Non
     assert queued_requests[0].payload["device_id"] == "device-1"
 
 
+def test_queued_client_raises_and_does_not_queue_fatal_errors(tmp_path: Any) -> None:
+    queue_file = tmp_path / "agent-queue.jsonl"
+    client = QueuedAuditApiClient(
+        FatalPostJsonClient(),
+        LocalAgentRequestQueue(queue_file),
+        retry_backoff_seconds=30,
+    )
+
+    try:
+        client.send_network_event(
+            {
+                "device_id": "device-1",
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "Linux",
+                "agent_version": "0.1.0",
+                "occurred_at": "2026-07-27T14:00:00+00:00",
+                "protocol": "TCP",
+            },
+        )
+    except AgentTransportError as exc:
+        assert not exc.retryable
+    else:
+        raise AssertionError("La cola no debe ocultar errores fatales")
+
+    assert LocalAgentRequestQueue(queue_file).read_all() == []
+
+
 def test_queued_client_flushes_pending_requests_before_new_send(tmp_path: Any) -> None:
     queue_file = tmp_path / "agent-queue.jsonl"
     queue = LocalAgentRequestQueue(queue_file)
@@ -406,6 +527,27 @@ def test_windows_service_reports_missing_pywin32(monkeypatch: Any) -> None:
         raise AssertionError("El servicio Windows debe explicar que falta pywin32")
 
 
+def test_service_map_invalid_json_degrades_to_empty_map(tmp_path: Any) -> None:
+    service_map_file = tmp_path / "service-map.json"
+    service_map_file.write_text("{json invalido", encoding="utf-8")
+
+    service_map = ServiceMap.from_file(service_map_file)
+
+    assert service_map.find("10.0.0.25", 5432) is None
+
+
+def test_service_map_invalid_entry_degrades_to_empty_map(tmp_path: Any) -> None:
+    service_map_file = tmp_path / "service-map.json"
+    service_map_file.write_text(
+        '[{"destination_ip": "10.0.0.25", "destination_port": "5432"}]',
+        encoding="utf-8",
+    )
+
+    service_map = ServiceMap.from_file(service_map_file)
+
+    assert service_map.find("10.0.0.25", 5432) is None
+
+
 class FakeIdentityCollector:
     def __init__(self, identity: DeviceIdentity) -> None:
         self._identity = identity
@@ -414,12 +556,47 @@ class FakeIdentityCollector:
         return self._identity
 
 
+class CyclingIdentityCollector:
+    def __init__(self, identities: list[DeviceIdentity]) -> None:
+        self._identities = identities
+        self._index = 0
+
+    def collect(self) -> DeviceIdentity:
+        if self._index >= len(self._identities):
+            return self._identities[-1]
+        identity = self._identities[self._index]
+        self._index += 1
+        return identity
+
+
 class FakeNetworkCollector:
     def __init__(self, connections: list[ObservedNetworkConnection]) -> None:
         self._connections = connections
 
     def collect(self, _identity: DeviceIdentity) -> list[ObservedNetworkConnection]:
         return self._connections
+
+
+class IdentityAwareNetworkCollector:
+    def __init__(self) -> None:
+        self.seen_identities: list[DeviceIdentity] = []
+
+    def collect(self, identity: DeviceIdentity) -> list[ObservedNetworkConnection]:
+        self.seen_identities.append(identity)
+        interface = identity.interfaces[0]
+        return [
+            ObservedNetworkConnection(
+                occurred_at=datetime(2026, 7, 27, 14, 0, tzinfo=UTC),
+                protocol="TCP",
+                local_ip=interface.local_ip,
+                local_port=51515,
+                destination_ip="93.184.216.34",
+                destination_port=443,
+                status="ESTABLISHED",
+                network_interface=interface.name,
+                mac_address=interface.mac_address,
+            ),
+        ]
 
 
 class FakeAuditApiClient:
@@ -451,6 +628,11 @@ class FakeAuditApiClient:
 class FailingPostJsonClient:
     def post_json(self, _path: str, _payload: dict[str, object]) -> dict[str, object]:
         raise AgentTransportError("backend no disponible")
+
+
+class FatalPostJsonClient:
+    def post_json(self, _path: str, _payload: dict[str, object]) -> dict[str, object]:
+        raise AgentTransportError("token invalido", retryable=False)
 
 
 class RecordingPostJsonClient:

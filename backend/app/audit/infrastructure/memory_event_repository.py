@@ -19,6 +19,15 @@ class InMemoryNetworkAuditEventRepository:
         return event
 
     def search(self, filters: NetworkAuditEventFilters) -> list[NetworkAuditEvent]:
+        items = self._filter_items(filters)
+
+        items.sort(key=lambda item: item.occurred_at, reverse=True)
+        return items[: max(filters.limit, 0)]
+
+    def list_device_ids(self, filters: NetworkAuditEventFilters) -> set[str]:
+        return {item.device_id for item in self._filter_items(filters)}
+
+    def _filter_items(self, filters: NetworkAuditEventFilters) -> list[NetworkAuditEvent]:
         with self._lock:
             items = list(self._items)
 
@@ -42,8 +51,7 @@ class InMemoryNetworkAuditEventRepository:
             to_datetime = ensure_aware(filters.to_datetime)
             items = [item for item in items if item.occurred_at <= to_datetime]
 
-        items.sort(key=lambda item: item.occurred_at, reverse=True)
-        return items[: max(filters.limit, 0)]
+        return items
 
 
 class InMemoryAgentLifecycleEventRepository:
@@ -57,6 +65,15 @@ class InMemoryAgentLifecycleEventRepository:
         return event
 
     def search(self, filters: AgentLifecycleEventFilters) -> list[AgentLifecycleEvent]:
+        items = self._filter_items(filters)
+
+        items.sort(key=lambda item: item.occurred_at, reverse=True)
+        return items[: max(filters.limit, 0)]
+
+    def list_device_ids(self, filters: AgentLifecycleEventFilters) -> set[str]:
+        return {item.device_id for item in self._filter_items(filters)}
+
+    def _filter_items(self, filters: AgentLifecycleEventFilters) -> list[AgentLifecycleEvent]:
         with self._lock:
             items = list(self._items)
 
@@ -71,6 +88,4 @@ class InMemoryAgentLifecycleEventRepository:
             to_datetime = ensure_aware(filters.to_datetime)
             items = [item for item in items if item.occurred_at <= to_datetime]
 
-        items.sort(key=lambda item: item.occurred_at, reverse=True)
-        return items[: max(filters.limit, 0)]
-
+        return items

@@ -8,7 +8,9 @@ from agent.app.device_identity import DeviceIdentity
 
 
 class AgentTransportError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, retryable: bool = True) -> None:
+        super().__init__(message)
+        self.retryable = retryable
 
 
 def build_device_registration_payload(identity: DeviceIdentity) -> dict[str, Any]:
@@ -101,6 +103,7 @@ class AuditApiClient:
             error_body = exc.read().decode(errors="replace")
             raise AgentTransportError(
                 f"Backend respondio {exc.code} al enviar {path}: {error_body}",
+                retryable=_is_retryable_http_status(exc.code),
             ) from exc
         except URLError as exc:
             raise AgentTransportError(f"No se pudo conectar con el backend: {exc.reason}") from exc
@@ -112,3 +115,7 @@ class AuditApiClient:
         if not isinstance(decoded, dict):
             raise AgentTransportError(f"Respuesta inesperada del backend para {path}")
         return decoded
+
+
+def _is_retryable_http_status(status_code: int) -> bool:
+    return status_code == 408 or status_code == 429 or status_code >= 500

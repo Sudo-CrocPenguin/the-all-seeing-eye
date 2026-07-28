@@ -34,6 +34,9 @@ class NetworkAuditEventRepository(Protocol):
     def search(self, filters: NetworkAuditEventFilters) -> list[NetworkAuditEvent]:
         raise NotImplementedError
 
+    def list_device_ids(self, filters: NetworkAuditEventFilters) -> set[str]:
+        raise NotImplementedError
+
 
 class AgentLifecycleEventRepository(Protocol):
     def save(self, event: AgentLifecycleEvent) -> AgentLifecycleEvent:
@@ -42,3 +45,5 @@ class AgentLifecycleEventRepository(Protocol):
     def search(self, filters: AgentLifecycleEventFilters) -> list[AgentLifecycleEvent]:
         raise NotImplementedError
 
+    def list_device_ids(self, filters: AgentLifecycleEventFilters) -> set[str]:
+        raise NotImplementedError

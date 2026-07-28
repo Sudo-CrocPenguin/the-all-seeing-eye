@@ -128,6 +128,8 @@ El backend calcula ventanas de inactividad cuando un agente deja de enviar heart
 
 Cuando un agente vuelve a reportar despues de estar marcado como perdido, el backend registra `AGENT_RECOVERED` y actualiza `last_seen_at`.
 
+Cuando el agente detecta cambio de identidad tecnica durante ejecucion, por ejemplo una interfaz nueva o una IP local distinta, registra de nuevo el dispositivo y envia `AGENT_CONFIG_CHANGED`.
+
 Ejemplo:
 
 ```json
@@ -265,6 +267,8 @@ La plataforma debe implementar controles de proteccion desde el inicio:
 El proyecto se encuentra preparando beta local. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. Las consultas de auditoria requieren token dedicado. El backend actualiza `last_seen_at` cuando recibe senales validas de agentes autenticados, detecta heartbeats perdidos, registra recuperaciones y expone una consulta de ventana forense por rango o marca exacta de tiempo.
 
 El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes enriquecidas con usuario local, PID, proceso, ejecutable y mapa local de servicios, guardar eventos pendientes en cola local cuando el backend no responde y desplegarse como servicio administrado en Linux/Windows.
+
+La beta exige que los eventos pertenezcan a dispositivos registrados, no encola errores fatales del backend y acepta IP publica desde headers de proxy solo cuando el proxy esta declarado en `TRUSTED_PROXY_IPS`.
 
 ## Despliegue Del Agente Como Servicio
 

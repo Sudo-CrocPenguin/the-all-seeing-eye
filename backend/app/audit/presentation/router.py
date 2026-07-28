@@ -1,5 +1,6 @@
+from dataclasses import replace
 from datetime import datetime, timedelta
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -37,6 +38,7 @@ from backend.app.audit.presentation.schemas import (
     NetworkAuditEventRequest,
     NetworkAuditEventResponse,
 )
+from backend.app.shared.config import Settings
 from backend.app.shared.container import AppContainer
 from backend.app.shared.dependencies import get_container
 from backend.app.shared.security import (
@@ -75,14 +77,15 @@ _PUBLIC_IP_HEADERS = (
 )
 
 
-def _observed_public_ip(request: Request) -> str | None:
-    for header_name in _PUBLIC_IP_HEADERS:
-        public_ip = _first_public_ip(request.headers.get(header_name))
-        if public_ip is not None:
-            return public_ip
-
+def _observed_public_ip(request: Request, settings: Settings) -> str | None:
     if request.client is None:
         return None
+
+    if _is_trusted_proxy(request.client.host, settings.trusted_proxy_ips):
+        for header_name in _PUBLIC_IP_HEADERS:
+            public_ip = _first_public_ip(request.headers.get(header_name))
+            if public_ip is not None:
+                return public_ip
 
     return _public_ip_or_none(request.client.host)
 
@@ -107,6 +110,30 @@ def _public_ip_or_none(raw_value: str) -> str | None:
     if not parsed_ip.is_global:
         return None
     return str(parsed_ip)
+
+
+def _is_trusted_proxy(client_host: str, trusted_proxy_ips: str) -> bool:
+    trusted_ranges = [
+        raw_range.strip()
+        for raw_range in trusted_proxy_ips.split(",")
+        if raw_range.strip()
+    ]
+    if not trusted_ranges:
+        return False
+
+    try:
+        client_ip = ip_address(client_host)
+    except ValueError:
+        return False
+
+    for raw_range in trusted_ranges:
+        try:
+            if client_ip in ip_network(raw_range, strict=False):
+                return True
+        except ValueError:
+            continue
+
+    return False
 
 
 def _record_agent_activity(
@@ -159,21 +186,30 @@ async def ingest_network_event(
     request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
 ) -> NetworkAuditEventResponse:
-    require_agent_token(
+    registered_device = require_agent_token(
         request,
         request.app.state.container.settings,
         container,
         device_id=payload.device_id,
+        require_registered_device=True,
     )
-    observed_public_ip = _observed_public_ip(request)
+    if registered_device is None:
+        raise RuntimeError("El dispositivo registrado es obligatorio para eventos de red")
+    observed_public_ip = _observed_public_ip(request, request.app.state.container.settings)
     use_case = IngestNetworkAuditEventUseCase(container.network_event_repository)
-    event = use_case.execute(payload.to_command(observed_public_ip))
+    command = replace(
+        payload.to_command(observed_public_ip),
+        hostname=registered_device.hostname,
+        os_name=registered_device.os_name,
+        agent_version=registered_device.agent_version,
+    )
+    event = use_case.execute(command)
     _record_agent_activity(
         container,
         RecordAgentActivityCommand(
             device_id=payload.device_id,
-            hostname=payload.hostname,
-            agent_version=payload.agent_version,
+            hostname=registered_device.hostname,
+            agent_version=registered_device.agent_version,
             local_ip=payload.local_ip,
             public_ip=payload.public_ip or observed_public_ip,
         ),
@@ -278,20 +314,23 @@ async def ingest_lifecycle_event(
     request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
 ) -> AgentLifecycleEventResponse:
-    require_agent_token(
+    registered_device = require_agent_token(
         request,
         request.app.state.container.settings,
         container,
         device_id=payload.device_id,
+        require_registered_device=True,
     )
-    observed_public_ip = _observed_public_ip(request)
+    if registered_device is None:
+        raise RuntimeError("El dispositivo registrado es obligatorio para lifecycle")
+    observed_public_ip = _observed_public_ip(request, request.app.state.container.settings)
     if payload.event_type in _LIFECYCLE_EVENTS_THAT_MARK_DEVICE_SEEN:
         _record_agent_activity(
             container,
             RecordAgentActivityCommand(
                 device_id=payload.device_id,
-                hostname=payload.hostname,
-                agent_version=payload.agent_version,
+                hostname=registered_device.hostname,
+                agent_version=registered_device.agent_version,
                 local_ip=payload.local_ip,
                 public_ip=payload.public_ip or observed_public_ip,
                 detect_recovery=payload.event_type in _LIFECYCLE_EVENTS_THAT_DETECT_RECOVERY,
@@ -299,7 +338,12 @@ async def ingest_lifecycle_event(
         )
 
     use_case = IngestAgentLifecycleEventUseCase(container.lifecycle_event_repository)
-    event = use_case.execute(payload.to_command(observed_public_ip))
+    command = replace(
+        payload.to_command(observed_public_ip),
+        hostname=registered_device.hostname,
+        agent_version=registered_device.agent_version,
+    )
+    event = use_case.execute(command)
     return AgentLifecycleEventResponse.from_domain(event)
 
 

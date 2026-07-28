@@ -29,6 +29,8 @@ AGENT_NETWORK_EVENT_DEDUP_SECONDS=300
 AGENT_REQUEST_TIMEOUT_SECONDS=10
 AGENT_REQUEST_RETRY_BACKOFF_SECONDS=30
 AGENT_QUEUE_FILE=
+AGENT_SERVICE_MAP_FILE=
+AGENT_REVERSE_DNS_ENABLED=true
 ```
 
 `AGENT_DEVICE_ID` puede quedar vacio. En ese caso el agente genera un identificador estable a partir de datos tecnicos del equipo.
@@ -72,6 +74,16 @@ C:\ProgramData\TheAllSeeingEye\agent-queue.jsonl
 ```
 
 El agente usa esta cola para registro del dispositivo, eventos de ciclo de vida y eventos de red.
+
+Los errores temporales de red, HTTP `408`, `429` y respuestas `5xx` se consideran reintentables y se guardan en cola. Los errores fatales como token invalido, permisos insuficientes o payload rechazado (`401`, `403`, `422`) no se encolan indefinidamente: el agente los expone como fallo para corregir la configuracion o los datos enviados.
+
+## Identidad Dinamica Y Resolucion De Destino
+
+El agente vuelve a recolectar identidad tecnica antes de cada heartbeat y cada scan de red. Si cambian interfaces, IP local, VPN o metadatos del dispositivo, registra nuevamente el equipo y envia `AGENT_CONFIG_CHANGED`. Esto mantiene la correlacion actualizada sin reiniciar el servicio.
+
+`AGENT_SERVICE_MAP_FILE` permite cargar nombres conocidos para servicios internos. Si el archivo no existe o esta corrupto, el agente degrada a un mapa vacio y sigue recolectando eventos.
+
+`AGENT_REVERSE_DNS_ENABLED` controla la resolucion DNS inversa. Por defecto esta en `true`; si en una red causa latencia, se puede poner en `false` y depender del mapa de servicios o de la IP/puerto destino.
 
 ## Ejecucion
 

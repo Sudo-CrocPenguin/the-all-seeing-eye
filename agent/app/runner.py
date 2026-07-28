@@ -71,6 +71,7 @@ class AgentRunner:
         self._identity_collector = identity_collector or DeviceIdentityCollector(settings)
         self._network_collector = network_collector or NetworkConnectionCollector(
             ServiceMap.from_file(settings.service_map_file),
+            reverse_dns_enabled=settings.reverse_dns_enabled,
         )
         self._api_client = api_client or self._build_api_client(settings)
         self._stop_requested = stop_signal or Event()
@@ -95,10 +96,12 @@ class AgentRunner:
         while not self._stop_requested.is_set():
             now = self._monotonic_clock()
             if now >= next_heartbeat_at:
+                identity = self._refresh_identity(identity)
                 self._send_lifecycle(identity, "AGENT_HEARTBEAT")
                 next_heartbeat_at = now + heartbeat_interval
 
             if now >= next_scan_at:
+                identity = self._refresh_identity(identity)
                 self._collect_and_send_network_events(identity)
                 next_scan_at = now + scan_interval
 
@@ -136,6 +139,19 @@ class AgentRunner:
         self._api_client.register_device(identity)
         self._send_lifecycle(identity, "AGENT_STARTED")
         return identity
+
+    def _refresh_identity(self, previous_identity: DeviceIdentity) -> DeviceIdentity:
+        current_identity = self._identity_collector.collect()
+        if current_identity == previous_identity:
+            return previous_identity
+
+        self._api_client.register_device(current_identity)
+        self._send_lifecycle(
+            current_identity,
+            "AGENT_CONFIG_CHANGED",
+            reason="identidad del dispositivo actualizada",
+        )
+        return current_identity
 
     def _shutdown(self, identity: DeviceIdentity, *, reason: str) -> None:
         self._send_lifecycle(identity, "AGENT_STOPPING", reason=reason)

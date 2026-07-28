@@ -27,6 +27,8 @@ El agente observa conexiones salientes con `psutil.net_connections`, intenta aso
 - Hostname destino por mapa de servicios o reverse DNS.
 - Nombre conocido del servicio interno.
 
+Antes de cada heartbeat y cada scan, el agente refresca la identidad tecnica del equipo. Si cambia la IP local, la interfaz activa o la VPN, vuelve a registrar el dispositivo y deja un evento `AGENT_CONFIG_CHANGED`.
+
 El backend conserva esos campos en `NetworkAuditEvent` y expone una consulta de ventana forense que agrupa:
 
 - Equipos activos dentro de la ventana.
@@ -71,6 +73,8 @@ Formato corto tambien soportado:
 }
 ```
 
+Si el archivo configurado no existe, no se puede leer o tiene JSON invalido, el agente continua con un mapa vacio y registra una advertencia. Para redes donde reverse DNS sea lento o poco confiable, se puede desactivar con `AGENT_REVERSE_DNS_ENABLED=false`.
+
 ## Variables Del Agente Para Beta
 
 ```env
@@ -82,7 +86,16 @@ AGENT_HEARTBEAT_INTERVAL_SECONDS=60
 AGENT_SCAN_INTERVAL_SECONDS=10
 AGENT_QUEUE_FILE=./agent-queue.jsonl
 AGENT_SERVICE_MAP_FILE=./service-map.json
+AGENT_REVERSE_DNS_ENABLED=true
 ```
+
+## Variables Del Backend Para Evidencia
+
+```env
+TRUSTED_PROXY_IPS=
+```
+
+`TRUSTED_PROXY_IPS` define que proxies pueden aportar headers como `X-Forwarded-For`, `X-Real-IP` o `CF-Connecting-IP`. Si queda vacio, el backend ignora esos headers y toma la IP observada solo desde la conexion entrante cuando es publica.
 
 ## Consulta Por Ventana De Incidente
 
@@ -105,6 +118,8 @@ Estados de equipo en la respuesta:
 - `ACTIVE_IN_WINDOW`: el equipo genero evento de red o ciclo de vida dentro de la ventana.
 - `WITHOUT_REPORT_BEFORE_WINDOW`: el equipo ya existia, pero su ultimo reporte fue anterior a la ventana.
 - `SEEN_AFTER_WINDOW`: el equipo fue visto despues, pero no hay evento directo dentro de la ventana.
+
+Los equipos activos se calculan con una consulta independiente del `limit` de eventos. Puedes pedir pocos eventos para revisar una muestra sin perder el listado completo de dispositivos que estuvieron activos en la ventana.
 
 ## Consulta De Todos Los Movimientos De Un Equipo
 

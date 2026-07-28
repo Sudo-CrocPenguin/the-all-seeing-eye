@@ -1,7 +1,10 @@
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,16 +32,21 @@ class ServiceMap:
             return cls()
         try:
             raw_content = path.read_text(encoding="utf-8")
-        except OSError:
+        except OSError as exc:
+            LOGGER.warning("No se pudo leer el mapa de servicios %s: %s", path, exc)
             return cls()
 
-        decoded = json.loads(raw_content)
-        if isinstance(decoded, dict):
-            raw_entries = decoded.get("services", decoded)
-        else:
-            raw_entries = decoded
+        try:
+            decoded = json.loads(raw_content)
+            if isinstance(decoded, dict):
+                raw_entries = decoded.get("services", decoded)
+            else:
+                raw_entries = decoded
 
-        return cls(_parse_entries(raw_entries))
+            return cls(_parse_entries(raw_entries))
+        except (json.JSONDecodeError, ValueError) as exc:
+            LOGGER.warning("Mapa de servicios invalido en %s: %s", path, exc)
+            return cls()
 
     def find(
         self,

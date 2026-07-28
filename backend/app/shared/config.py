@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     auditor_token_header: str = "X-Auditor-Token"
     provisioning_token: str | None = None
     provisioning_token_header: str = "X-Provisioning-Token"
+    trusted_proxy_ips: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
