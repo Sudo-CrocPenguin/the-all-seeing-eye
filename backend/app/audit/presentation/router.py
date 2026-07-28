@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -37,6 +37,7 @@ from backend.app.audit.presentation.schemas import (
     NetworkAuditEventRequest,
     NetworkAuditEventResponse,
 )
+from backend.app.shared.config import Settings
 from backend.app.shared.container import AppContainer
 from backend.app.shared.dependencies import get_container
 from backend.app.shared.security import (
@@ -75,14 +76,15 @@ _PUBLIC_IP_HEADERS = (
 )
 
 
-def _observed_public_ip(request: Request) -> str | None:
-    for header_name in _PUBLIC_IP_HEADERS:
-        public_ip = _first_public_ip(request.headers.get(header_name))
-        if public_ip is not None:
-            return public_ip
-
+def _observed_public_ip(request: Request, settings: Settings) -> str | None:
     if request.client is None:
         return None
+
+    if _is_trusted_proxy(request.client.host, settings.trusted_proxy_ips):
+        for header_name in _PUBLIC_IP_HEADERS:
+            public_ip = _first_public_ip(request.headers.get(header_name))
+            if public_ip is not None:
+                return public_ip
 
     return _public_ip_or_none(request.client.host)
 
@@ -107,6 +109,30 @@ def _public_ip_or_none(raw_value: str) -> str | None:
     if not parsed_ip.is_global:
         return None
     return str(parsed_ip)
+
+
+def _is_trusted_proxy(client_host: str, trusted_proxy_ips: str) -> bool:
+    trusted_ranges = [
+        raw_range.strip()
+        for raw_range in trusted_proxy_ips.split(",")
+        if raw_range.strip()
+    ]
+    if not trusted_ranges:
+        return False
+
+    try:
+        client_ip = ip_address(client_host)
+    except ValueError:
+        return False
+
+    for raw_range in trusted_ranges:
+        try:
+            if client_ip in ip_network(raw_range, strict=False):
+                return True
+        except ValueError:
+            continue
+
+    return False
 
 
 def _record_agent_activity(
@@ -165,7 +191,7 @@ async def ingest_network_event(
         container,
         device_id=payload.device_id,
     )
-    observed_public_ip = _observed_public_ip(request)
+    observed_public_ip = _observed_public_ip(request, request.app.state.container.settings)
     use_case = IngestNetworkAuditEventUseCase(container.network_event_repository)
     event = use_case.execute(payload.to_command(observed_public_ip))
     _record_agent_activity(
@@ -284,7 +310,7 @@ async def ingest_lifecycle_event(
         container,
         device_id=payload.device_id,
     )
-    observed_public_ip = _observed_public_ip(request)
+    observed_public_ip = _observed_public_ip(request, request.app.state.container.settings)
     if payload.event_type in _LIFECYCLE_EVENTS_THAT_MARK_DEVICE_SEEN:
         _record_agent_activity(
             container,
