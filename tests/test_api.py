@@ -136,7 +136,7 @@ async def test_network_event_updates_device_last_seen_at(
         agent_token = await provision_agent_token(client)
         await register_test_device(client, agent_token=agent_token)
         monkeypatch.setattr(
-            "backend.app.devices.application.mark_device_seen.utc_now",
+            "backend.app.audit.application.record_agent_activity.utc_now",
             lambda: seen_at,
         )
 
@@ -205,7 +205,7 @@ async def test_lifecycle_heartbeat_updates_device_last_seen_at(
         agent_token = await provision_agent_token(client)
         await register_test_device(client, agent_token=agent_token)
         monkeypatch.setattr(
-            "backend.app.devices.application.mark_device_seen.utc_now",
+            "backend.app.audit.application.record_agent_activity.utc_now",
             lambda: seen_at,
         )
 
@@ -226,6 +226,137 @@ async def test_lifecycle_heartbeat_updates_device_last_seen_at(
         list_response = await client.get("/api/v1/devices")
         assert list_response.status_code == 200
         assert datetime.fromisoformat(list_response.json()[0]["last_seen_at"]) == seen_at
+
+
+@pytest.mark.anyio
+async def test_detect_missed_heartbeats_creates_lifecycle_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    last_seen_at = datetime(2026, 7, 27, 15, 0, tzinfo=UTC)
+    detected_at = datetime(2026, 7, 27, 15, 4, tzinfo=UTC)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
+        await register_test_device(client, agent_token=agent_token)
+        monkeypatch.setattr(
+            "backend.app.audit.application.record_agent_activity.utc_now",
+            lambda: last_seen_at,
+        )
+        network_response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "occurred_at": "2026-07-27T15:00:00+00:00",
+                "device_id": "device-1",
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_ip": "93.184.216.34",
+                "destination_port": 443,
+            },
+        )
+        assert network_response.status_code == 201
+        monkeypatch.setattr(
+            "backend.app.audit.application.detect_missed_heartbeats.utc_now",
+            lambda: detected_at,
+        )
+
+        response = await client.post(
+            "/api/v1/audit/lifecycle-events/detect-missed-heartbeats",
+            headers={"X-Provisioning-Token": PROVISIONING_TOKEN},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 1
+        assert body[0]["event_type"] == "AGENT_MISSED_HEARTBEAT"
+        assert body[0]["last_seen_at"] == "2026-07-27T15:00:00Z"
+        assert body[0]["detected_at"] == "2026-07-27T15:04:00Z"
+        assert body[0]["downtime_seconds"] == 240
+
+        repeated_response = await client.post(
+            "/api/v1/audit/lifecycle-events/detect-missed-heartbeats",
+            headers={"X-Provisioning-Token": PROVISIONING_TOKEN},
+        )
+        assert repeated_response.status_code == 200
+        assert repeated_response.json() == []
+
+
+@pytest.mark.anyio
+async def test_heartbeat_after_missed_heartbeat_records_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    last_seen_at = datetime(2026, 7, 27, 15, 0, tzinfo=UTC)
+    detected_at = datetime(2026, 7, 27, 15, 4, tzinfo=UTC)
+    recovered_at = datetime(2026, 7, 27, 15, 5, tzinfo=UTC)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
+        await register_test_device(client, agent_token=agent_token)
+        monkeypatch.setattr(
+            "backend.app.audit.application.record_agent_activity.utc_now",
+            lambda: last_seen_at,
+        )
+        network_response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "occurred_at": "2026-07-27T15:00:00+00:00",
+                "device_id": "device-1",
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_ip": "93.184.216.34",
+                "destination_port": 443,
+            },
+        )
+        assert network_response.status_code == 201
+        monkeypatch.setattr(
+            "backend.app.audit.application.detect_missed_heartbeats.utc_now",
+            lambda: detected_at,
+        )
+        missed_response = await client.post(
+            "/api/v1/audit/lifecycle-events/detect-missed-heartbeats",
+            headers={"X-Provisioning-Token": PROVISIONING_TOKEN},
+        )
+        assert missed_response.status_code == 200
+        monkeypatch.setattr(
+            "backend.app.audit.application.record_agent_activity.utc_now",
+            lambda: recovered_at,
+        )
+
+        heartbeat_response = await client.post(
+            "/api/v1/audit/lifecycle-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "event_type": "AGENT_HEARTBEAT",
+                "occurred_at": "2026-07-27T15:05:00+00:00",
+                "device_id": "device-1",
+                "hostname": "DEV-LAPTOP-001",
+                "agent_version": "0.1.0",
+                "local_ip": "192.168.1.10",
+            },
+        )
+
+        assert heartbeat_response.status_code == 201
+        recovered_response = await client.get(
+            "/api/v1/audit/lifecycle-events",
+            params={"device_id": "device-1", "event_type": "AGENT_RECOVERED"},
+        )
+        assert recovered_response.status_code == 200
+        recovered_events = recovered_response.json()
+        assert len(recovered_events) == 1
+        assert recovered_events[0]["last_seen_at"] == "2026-07-27T15:00:00Z"
+        assert recovered_events[0]["detected_at"] == "2026-07-27T15:05:00Z"
+        assert recovered_events[0]["downtime_seconds"] == 300
+
+        list_response = await client.get("/api/v1/devices")
+        assert list_response.status_code == 200
+        assert datetime.fromisoformat(list_response.json()[0]["last_seen_at"]) == recovered_at
 
 
 @pytest.mark.anyio
