@@ -179,6 +179,52 @@ def test_runner_once_reports_lifecycle_and_network_event() -> None:
     assert api_client.network_events[0]["destination_ip"] == "93.184.216.34"
 
 
+def test_runner_forever_uses_scan_interval_independently_from_heartbeat() -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    connection = ObservedNetworkConnection(
+        occurred_at=datetime(2026, 7, 27, 14, 0, tzinfo=UTC),
+        protocol="TCP",
+        local_ip="192.168.1.10",
+        local_port=51515,
+        destination_ip="93.184.216.34",
+        destination_port=443,
+        status="ESTABLISHED",
+        network_interface="eth0",
+        mac_address="00:11:22:33:44:55",
+    )
+    api_client = FakeAuditApiClient()
+    clock = FakeMonotonicClock()
+    stop_signal = FakeStopSignal(clock, stop_after_waits=4)
+    runner = SignalFreeAgentRunner(
+        AgentSettings(
+            heartbeat_interval_seconds=10,
+            scan_interval_seconds=3,
+            network_event_dedup_seconds=0,
+        ),
+        identity_collector=FakeIdentityCollector(identity),
+        network_collector=FakeNetworkCollector([connection]),
+        api_client=api_client,
+        stop_signal=stop_signal,
+        monotonic_clock=clock,
+    )
+
+    runner.run_forever()
+
+    assert api_client.lifecycle_events == [
+        "AGENT_STARTED",
+        "AGENT_STOPPING",
+        "AGENT_STOPPED",
+    ]
+    assert len(api_client.network_events) == 3
+    assert stop_signal.waits == [3.0, 3.0, 3.0, 1.0]
+
+
 def test_runner_requires_agent_token_when_using_real_client() -> None:
     try:
         AgentRunner(AgentSettings())
@@ -285,3 +331,43 @@ class FakeAuditApiClient:
     def send_network_event(self, payload: dict[str, object]) -> dict[str, object]:
         self.network_events.append(payload)
         return {}
+
+
+class FakeMonotonicClock:
+    def __init__(self) -> None:
+        self._value = 0.0
+
+    def __call__(self) -> float:
+        return self._value
+
+    def advance(self, seconds: float) -> None:
+        self._value += seconds
+
+
+class FakeStopSignal:
+    def __init__(self, clock: FakeMonotonicClock, *, stop_after_waits: int) -> None:
+        self._clock = clock
+        self._stop_after_waits = stop_after_waits
+        self._is_set = False
+        self.waits: list[float] = []
+
+    def wait(self, timeout: float | None = None) -> bool:
+        wait_seconds = float(timeout or 0.0)
+        self.waits.append(wait_seconds)
+        if len(self.waits) >= self._stop_after_waits:
+            self._is_set = True
+            return True
+
+        self._clock.advance(wait_seconds)
+        return False
+
+    def set(self) -> None:
+        self._is_set = True
+
+    def is_set(self) -> bool:
+        return self._is_set
+
+
+class SignalFreeAgentRunner(AgentRunner):
+    def _install_signal_handlers(self, _identity: DeviceIdentity) -> None:
+        return None
