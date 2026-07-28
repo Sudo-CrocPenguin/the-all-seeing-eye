@@ -22,7 +22,18 @@ Sirve para que los agentes Windows/Linux reporten actividad tecnica de red y est
 3. El agente envia eventos de estado a `POST /api/v1/audit/lifecycle-events`.
 4. El backend valida los datos con entidades de dominio.
 5. Los repositorios SQLAlchemy guardan los registros en la base de datos.
-6. Los endpoints `GET` consultan eventos persistidos por filtros operativos.
+6. Cuando recibe eventos validos del agente, el backend actualiza `devices.last_seen_at`.
+7. Los endpoints `GET` consultan eventos persistidos por filtros operativos.
+
+## Ultima Vez Visto
+
+`devices.last_seen_at` representa la ultima vez que el backend recibio una senal valida de un agente autenticado. Se actualiza cuando:
+
+- El agente registra o actualiza el dispositivo en `POST /api/v1/devices`.
+- El agente envia un evento de red en `POST /api/v1/audit/network-events`.
+- El agente envia eventos de ciclo de vida que prueban presencia, como `AGENT_STARTED`, `AGENT_HEARTBEAT`, `AGENT_STOPPING`, `AGENT_STOPPED`, `AGENT_RECOVERED` o `AGENT_CONFIG_CHANGED`.
+
+El backend usa su propia hora de recepcion para `last_seen_at`. No usa `occurred_at` para este campo, porque en versiones con cola local podrian llegar eventos atrasados y no deben mover hacia atras la lectura operativa de actividad reciente.
 
 ## Ejecutar Localmente
 

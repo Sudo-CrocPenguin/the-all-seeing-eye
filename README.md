@@ -255,7 +255,7 @@ La plataforma debe implementar controles de proteccion desde el inicio:
 
 ## Estado Actual
 
-El proyecto se encuentra en etapa de MVP. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes basicas y desplegarse como servicio administrado en Linux/Windows.
+El proyecto se encuentra en etapa de MVP. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. El backend actualiza `last_seen_at` cuando recibe senales validas de agentes autenticados. El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes basicas y desplegarse como servicio administrado en Linux/Windows.
 
 ## Despliegue Del Agente Como Servicio
 
