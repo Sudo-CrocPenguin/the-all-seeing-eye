@@ -106,6 +106,7 @@ POST /api/v1/devices
 GET  /api/v1/devices
 POST /api/v1/audit/network-events
 GET  /api/v1/audit/network-events
+GET  /api/v1/audit/device-movements
 POST /api/v1/audit/lifecycle-events
 POST /api/v1/audit/lifecycle-events/detect-missed-heartbeats
 GET  /api/v1/audit/lifecycle-events
@@ -149,10 +150,37 @@ Los endpoints protegidos son:
 ```text
 GET /api/v1/devices
 GET /api/v1/audit/network-events
+GET /api/v1/audit/device-movements
 GET /api/v1/audit/lifecycle-events
 ```
 
 Este token sirve para revisar historicos sin conceder permisos de provisionamiento de agentes.
+
+### Historial Unificado Del Equipo
+
+Para ver todos los movimientos de un equipo en una sola linea temporal:
+
+```bash
+curl -H "X-Auditor-Token: valor-de-auditoria-seguro" \
+  "http://127.0.0.1:8000/api/v1/audit/device-movements?device_id=DEV-LAPTOP-042&limit=100"
+```
+
+La respuesta mezcla conexiones de red y ciclo de vida del agente con campos comunes:
+
+- `movement_type`: `NETWORK_CONNECTION`, `AGENT_STARTED`, `AGENT_HEARTBEAT`, `AGENT_STOPPED`, etc.
+- `summary`: destino o evento resumido.
+- `local_username`, `process_id`, `process_name`: cuando el sistema operativo permite asociar proceso.
+- `destination_host`, `destination_ip`, `destination_port`: cuando aplica.
+- `connection_status`: estado TCP/UDP observado por `psutil`.
+
+La base tambien crea una vista SQL `device_movements` para revisar este historial directo en la DB:
+
+```sql
+SELECT occurred_at, movement_type, device_id, process_name, summary
+FROM device_movements
+WHERE device_id = 'DEV-LAPTOP-042'
+ORDER BY occurred_at DESC;
+```
 
 ### Provisionar Token
 
