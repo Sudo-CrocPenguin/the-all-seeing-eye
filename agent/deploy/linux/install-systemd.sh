@@ -49,5 +49,11 @@ sed \
 chmod 0644 "${UNIT_FILE}"
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}"
+
+if ! grep -Eq '^AGENT_TOKEN=.+$' "${ENV_FILE}"; then
+  echo "AGENT_TOKEN no esta configurado en ${ENV_FILE}; el servicio quedo habilitado pero no se inicio." >&2
+  exit 0
+fi
+
 systemctl restart "${SERVICE_NAME}"
 systemctl status "${SERVICE_NAME}" --no-pager

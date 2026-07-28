@@ -14,6 +14,10 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw "Este instalador debe ejecutarse como administrador."
 }
 
+if ([string]::IsNullOrWhiteSpace($AgentToken)) {
+    throw "AgentToken es obligatorio para instalar e iniciar el servicio."
+}
+
 $sourceDir = Resolve-Path (Join-Path $PSScriptRoot "..\..\..")
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
