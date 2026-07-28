@@ -211,7 +211,7 @@ async def ingest_network_event(
             hostname=registered_device.hostname,
             agent_version=registered_device.agent_version,
             local_ip=payload.local_ip,
-            public_ip=payload.public_ip or observed_public_ip,
+            public_ip=observed_public_ip,
         ),
     )
     return NetworkAuditEventResponse.from_domain(event)
@@ -332,7 +332,7 @@ async def ingest_lifecycle_event(
                 hostname=registered_device.hostname,
                 agent_version=registered_device.agent_version,
                 local_ip=payload.local_ip,
-                public_ip=payload.public_ip or observed_public_ip,
+                public_ip=observed_public_ip,
                 detect_recovery=payload.event_type in _LIFECYCLE_EVENTS_THAT_DETECT_RECOVERY,
             ),
         )

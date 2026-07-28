@@ -134,11 +134,13 @@ async def test_ingest_and_search_network_events() -> None:
         assert body["hostname"] == "DEV-LAPTOP-001"
         assert body["os_name"] == "linux"
         assert body["agent_version"] == "0.1.0"
+        assert body["public_ip"] is None
         assert body["local_username"] == "dev-user"
         assert body["process_id"] == 4242
         assert body["process_name"] == "psql"
         assert body["process_executable"] == "/usr/bin/psql"
         assert body["service_name"] == "Base de datos produccion"
+        assert body["request_metadata"]["agent_reported_public_ip"] == "203.0.113.10"
 
         search_response = await client.get(
             "/api/v1/audit/network-events",
@@ -224,6 +226,7 @@ async def test_ingest_network_event_uses_forwarded_public_ip_from_trusted_proxy(
                 "agent_version": "0.1.0",
                 "protocol": "tcp",
                 "local_ip": "192.168.1.10",
+                "public_ip": "1.1.1.1",
                 "destination_ip": "10.0.0.25",
                 "destination_port": 5432,
             },
@@ -231,6 +234,7 @@ async def test_ingest_network_event_uses_forwarded_public_ip_from_trusted_proxy(
 
     assert response.status_code == 201
     assert response.json()["public_ip"] == "8.8.8.8"
+    assert response.json()["request_metadata"]["agent_reported_public_ip"] == "1.1.1.1"
 
 
 @pytest.mark.anyio
@@ -318,7 +322,9 @@ async def test_ingest_and_search_lifecycle_events() -> None:
         )
 
         assert response.status_code == 201
-        assert response.json()["event_type"] == "AGENT_MISSED_HEARTBEAT"
+        body = response.json()
+        assert body["event_type"] == "AGENT_MISSED_HEARTBEAT"
+        assert body["public_ip"] is None
 
         search_response = await client.get(
             "/api/v1/audit/lifecycle-events",
