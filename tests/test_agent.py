@@ -1,7 +1,9 @@
+import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
+from agent.app import cli as agent_cli
 from agent.app.config import AgentSettings
 from agent.app.device_identity import (
     DeviceIdentity,
@@ -70,6 +72,36 @@ def test_agent_settings_from_env_file(tmp_path: Any, monkeypatch: Any) -> None:
     assert settings.device_id == "device-file"
     assert settings.agent_token == "token-file"
     assert settings.heartbeat_interval_seconds == 20
+
+
+def test_cli_preserves_service_map_file_from_environment(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    service_map_file = tmp_path / "service-map.json"
+    captured: dict[str, object] = {}
+
+    class FakeCliRunner:
+        def __init__(self, settings: AgentSettings) -> None:
+            captured["settings"] = settings
+
+        def run_once(self) -> None:
+            captured["run_once"] = True
+
+        def run_forever(self) -> None:
+            captured["run_forever"] = True
+
+    monkeypatch.setenv("AGENT_TOKEN", "agent-token")
+    monkeypatch.setenv("AGENT_SERVICE_MAP_FILE", str(service_map_file))
+    monkeypatch.setattr(agent_cli, "AgentRunner", FakeCliRunner)
+    monkeypatch.setattr(sys, "argv", ["agent", "--once"])
+
+    agent_cli.main()
+
+    settings = captured["settings"]
+    assert isinstance(settings, AgentSettings)
+    assert settings.service_map_file == service_map_file
+    assert captured["run_once"] is True
 
 
 def test_environment_variables_override_env_file(tmp_path: Any, monkeypatch: Any) -> None:
