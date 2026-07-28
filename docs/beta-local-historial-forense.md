@@ -78,7 +78,7 @@ Si el archivo configurado no existe, no se puede leer o tiene JSON invalido, el 
 ## Variables Del Agente Para Beta
 
 ```env
-AGENT_BACKEND_URL=http://IP_DEL_BACKEND:8000
+AGENT_BACKEND_URL=https://audit.empresa.local
 AGENT_DEVICE_ID=DEV-LAPTOP-042
 AGENT_TOKEN=token_provisionado_para_el_equipo
 AGENT_TOKEN_HEADER=X-Agent-Token
@@ -87,12 +87,17 @@ AGENT_SCAN_INTERVAL_SECONDS=10
 AGENT_QUEUE_FILE=./agent-queue.jsonl
 AGENT_SERVICE_MAP_FILE=./service-map.json
 AGENT_REVERSE_DNS_ENABLED=true
+AGENT_ALLOW_INSECURE_TRANSPORT=false
 ```
+
+Para pruebas locales con `http://127.0.0.1:8000` no se requiere override. Si se usa HTTP hacia una IP LAN o VPN temporal, debe configurarse `AGENT_ALLOW_INSECURE_TRANSPORT=true` y documentar el riesgo.
 
 ## Variables Del Backend Para Evidencia
 
 ```env
 TRUSTED_PROXY_IPS=
+MISSED_HEARTBEAT_SCHEDULER_ENABLED=true
+MISSED_HEARTBEAT_SCHEDULER_INTERVAL_SECONDS=60
 ```
 
 `TRUSTED_PROXY_IPS` define que proxies pueden aportar headers como `X-Forwarded-For`, `X-Real-IP` o `CF-Connecting-IP`. Si queda vacio, el backend ignora esos headers y toma la IP observada solo desde la conexion entrante cuando es publica.

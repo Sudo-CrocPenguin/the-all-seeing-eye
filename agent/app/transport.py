@@ -1,10 +1,17 @@
 import json
 from dataclasses import asdict
+from ipaddress import ip_address
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from agent.app.config import AGENT_VERSION
 from agent.app.device_identity import DeviceIdentity
+
+
+class InsecureBackendUrlError(ValueError):
+    pass
 
 
 class AgentTransportError(RuntimeError):
@@ -53,8 +60,13 @@ class AuditApiClient:
         agent_token: str,
         agent_token_header: str = "X-Agent-Token",
         timeout_seconds: int = 10,
+        allow_insecure_transport: bool = False,
     ) -> None:
         self._backend_url = backend_url.rstrip("/")
+        _validate_backend_url_security(
+            self._backend_url,
+            allow_insecure_transport=allow_insecure_transport,
+        )
         self._agent_token = agent_token
         self._agent_token_header = agent_token_header
         self._timeout_seconds = timeout_seconds
@@ -90,7 +102,7 @@ class AuditApiClient:
             data=body,
             headers={
                 "Content-Type": "application/json",
-                "User-Agent": "the-all-seeing-eye-agent/0.1.0",
+                "User-Agent": f"the-all-seeing-eye-agent/{AGENT_VERSION}",
                 self._agent_token_header: self._agent_token,
             },
             method="POST",
@@ -119,3 +131,33 @@ class AuditApiClient:
 
 def _is_retryable_http_status(status_code: int) -> bool:
     return status_code == 408 or status_code == 429 or status_code >= 500
+
+
+def _validate_backend_url_security(
+    backend_url: str,
+    *,
+    allow_insecure_transport: bool,
+) -> None:
+    parsed_url = urlparse(backend_url)
+    if parsed_url.scheme == "https":
+        return
+    if parsed_url.scheme != "http":
+        raise InsecureBackendUrlError("AGENT_BACKEND_URL debe usar http o https")
+    if allow_insecure_transport:
+        return
+    if parsed_url.hostname is not None and _is_loopback_host(parsed_url.hostname):
+        return
+
+    raise InsecureBackendUrlError(
+        "AGENT_BACKEND_URL debe usar HTTPS para hosts no locales. "
+        "Solo se permite HTTP no-local con AGENT_ALLOW_INSECURE_TRANSPORT=true.",
+    )
+
+
+def _is_loopback_host(hostname: str) -> bool:
+    if hostname.lower() == "localhost":
+        return True
+    try:
+        return ip_address(hostname).is_loopback
+    except ValueError:
+        return False

@@ -11,7 +11,7 @@ from agent.app.device_identity import DeviceIdentity, DeviceIdentityCollector
 from agent.app.local_queue import QueuedAuditApiClient
 from agent.app.network_collector import NetworkConnectionCollector, ObservedNetworkConnection
 from agent.app.service_map import ServiceMap
-from agent.app.transport import AuditApiClient
+from agent.app.transport import AuditApiClient, InsecureBackendUrlError
 
 
 class AgentConfigurationError(RuntimeError):
@@ -122,12 +122,16 @@ class AgentRunner:
 
     @classmethod
     def _build_api_client(cls, settings: AgentSettings) -> AgentApiClient:
-        client = AuditApiClient(
-            settings.backend_url,
-            agent_token=cls._require_agent_token(settings),
-            agent_token_header=settings.agent_token_header,
-            timeout_seconds=settings.request_timeout_seconds,
-        )
+        try:
+            client = AuditApiClient(
+                settings.backend_url,
+                agent_token=cls._require_agent_token(settings),
+                agent_token_header=settings.agent_token_header,
+                timeout_seconds=settings.request_timeout_seconds,
+                allow_insecure_transport=settings.allow_insecure_transport,
+            )
+        except InsecureBackendUrlError as exc:
+            raise AgentConfigurationError(str(exc)) from exc
         return QueuedAuditApiClient.from_audit_api_client(
             client,
             settings.queue_file,

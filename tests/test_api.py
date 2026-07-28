@@ -4,20 +4,30 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from backend.app.audit.application.heartbeat_scheduler import detect_missed_heartbeats_once
 from backend.app.main import create_app
 from backend.app.shared.config import Settings
 
 PROVISIONING_TOKEN = "test-provisioning-token"
 AUDITOR_TOKEN = "test-auditor-token"
+STRONG_PROVISIONING_TOKEN = "p" * 32
+STRONG_AUDITOR_TOKEN = "a" * 32
 
 
-def create_test_app(*, trusted_proxy_ips: str = "") -> FastAPI:
+def create_test_app(
+    *,
+    trusted_proxy_ips: str = "",
+    app_env: str = "local",
+    auditor_token: str = AUDITOR_TOKEN,
+    provisioning_token: str = PROVISIONING_TOKEN,
+) -> FastAPI:
     return create_app(
         settings=Settings(
+            app_env=app_env,
             database_url="sqlite+pysqlite:///:memory:",
             persistence_backend="sqlalchemy",
-            auditor_token=AUDITOR_TOKEN,
-            provisioning_token=PROVISIONING_TOKEN,
+            auditor_token=auditor_token,
+            provisioning_token=provisioning_token,
             trusted_proxy_ips=trusted_proxy_ips,
         ),
         create_schema=True,
@@ -75,7 +85,38 @@ async def test_health_check() -> None:
         response = await client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {
+        "status": "ok",
+        "persistence": "sqlalchemy",
+        "database": "ok",
+        "migration": "not_configured",
+    }
+
+
+@pytest.mark.anyio
+async def test_api_docs_are_disabled_outside_local_environment() -> None:
+    app = create_test_app(
+        app_env="beta",
+        auditor_token=STRONG_AUDITOR_TOKEN,
+        provisioning_token=STRONG_PROVISIONING_TOKEN,
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        docs_response = await client.get("/docs")
+        openapi_response = await client.get("/openapi.json")
+
+    assert docs_response.status_code == 404
+    assert openapi_response.status_code == 404
+
+
+def test_non_local_environment_requires_strong_shared_tokens() -> None:
+    with pytest.raises(ValueError):
+        Settings(
+            app_env="beta",
+            database_url="sqlite+pysqlite:///:memory:",
+            auditor_token="corto",
+            provisioning_token=STRONG_PROVISIONING_TOKEN,
+        )
 
 
 @pytest.mark.anyio
@@ -677,6 +718,57 @@ async def test_detect_missed_heartbeats_creates_lifecycle_event(
         )
         assert repeated_response.status_code == 200
         assert repeated_response.json() == []
+
+
+@pytest.mark.anyio
+async def test_scheduled_missed_heartbeat_detector_reuses_runtime_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_test_app()
+    transport = httpx.ASGITransport(app=app)
+    last_seen_at = datetime(2026, 7, 27, 15, 0, tzinfo=UTC)
+    detected_at = datetime(2026, 7, 27, 15, 4, tzinfo=UTC)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
+        await register_test_device(client, agent_token=agent_token)
+        monkeypatch.setattr(
+            "backend.app.audit.application.record_agent_activity.utc_now",
+            lambda: last_seen_at,
+        )
+        network_response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "occurred_at": "2026-07-27T15:00:00+00:00",
+                "device_id": "device-1",
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_ip": "93.184.216.34",
+                "destination_port": 443,
+            },
+        )
+        assert network_response.status_code == 201
+        monkeypatch.setattr(
+            "backend.app.audit.application.detect_missed_heartbeats.utc_now",
+            lambda: detected_at,
+        )
+
+        detected_count = detect_missed_heartbeats_once(app.state.container)
+
+        assert detected_count == 1
+        lifecycle_response = await client.get(
+            "/api/v1/audit/lifecycle-events",
+            headers=auditor_headers(),
+            params={"device_id": "device-1", "event_type": "AGENT_MISSED_HEARTBEAT"},
+        )
+
+    assert lifecycle_response.status_code == 200
+    lifecycle_events = lifecycle_response.json()
+    assert len(lifecycle_events) == 1
+    assert lifecycle_events[0]["detected_at"] == "2026-07-27T15:04:00Z"
 
 
 @pytest.mark.anyio

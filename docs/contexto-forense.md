@@ -67,3 +67,5 @@ Para la beta local, el sistema debe permitir:
 ## Proteccion De La Evidencia
 
 Para beta se mantiene persistencia local. Para despliegue real, la base de auditoria debe vivir separada de los sistemas auditados, con backups protegidos y acceso restringido. Si la evidencia queda en la misma superficie que los sistemas productivos, un atacante interno podria intentar borrar tambien el historial.
+
+Para `0.1.0-beta.1`, el despliegue aceptable es un piloto controlado en red/VPN corporativa, con HTTPS o reverse proxy, secretos fuertes, base dedicada y retencion operativa manual. Produccion plena requiere retencion automatica, backups inalterables y controles de acceso mas granulares.

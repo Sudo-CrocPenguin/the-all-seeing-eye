@@ -31,11 +31,14 @@ AGENT_REQUEST_RETRY_BACKOFF_SECONDS=30
 AGENT_QUEUE_FILE=
 AGENT_SERVICE_MAP_FILE=
 AGENT_REVERSE_DNS_ENABLED=true
+AGENT_ALLOW_INSECURE_TRANSPORT=false
 ```
 
 `AGENT_DEVICE_ID` puede quedar vacio. En ese caso el agente genera un identificador estable a partir de datos tecnicos del equipo.
 
 `AGENT_TOKEN` es obligatorio para reportar al backend. Se obtiene desde el endpoint de provision del backend y debe corresponder al `device_id` del equipo.
+
+`AGENT_BACKEND_URL` debe usar HTTPS cuando apunta a un host no local. HTTP hacia `127.0.0.1` o `localhost` se permite para desarrollo. HTTP hacia LAN/VPN solo funciona si `AGENT_ALLOW_INSECURE_TRANSPORT=true`, y debe limitarse a laboratorio o piloto documentado.
 
 `AGENT_ENV_FILE` permite apuntar a un archivo de configuracion `KEY=VALUE`. Si no se define, el agente busca automaticamente:
 
@@ -76,6 +79,8 @@ C:\ProgramData\TheAllSeeingEye\agent-queue.jsonl
 El agente usa esta cola para registro del dispositivo, eventos de ciclo de vida y eventos de red.
 
 Si existe cola pendiente y no se puede vaciar por backoff o fallo temporal, el agente no envia el request actual por delante. Lo agrega detras de los pendientes para conservar el orden, por ejemplo registro de dispositivo antes de `AGENT_STARTED`.
+
+Si el archivo JSONL queda parcialmente corrupto tras un corte, el agente ignora las lineas invalidas, conserva los registros validos y reescribe la cola limpia.
 
 Los errores temporales de red, HTTP `408`, `429` y respuestas `5xx` se consideran reintentables y se guardan en cola. Los errores fatales como token invalido, permisos insuficientes o payload rechazado (`401`, `403`, `422`) no se encolan indefinidamente: el agente los expone como fallo para corregir la configuracion o los datos enviados.
 

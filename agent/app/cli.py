@@ -63,6 +63,7 @@ def main() -> None:
         queue_file=settings.queue_file,
         service_map_file=settings.service_map_file,
         reverse_dns_enabled=settings.reverse_dns_enabled,
+        allow_insecure_transport=settings.allow_insecure_transport,
     )
 
     if args.identify:
