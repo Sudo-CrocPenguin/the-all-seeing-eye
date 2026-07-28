@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://audit:audit@localhost:5432/the_all_seeing_eye"
     persistence_backend: Literal["memory", "sqlalchemy"] = "sqlalchemy"
     api_docs_enabled: bool = True
+    health_require_current_migration: bool = False
     agent_heartbeat_timeout_seconds: int = 180
     missed_heartbeat_scheduler_enabled: bool = False
     missed_heartbeat_scheduler_interval_seconds: int = 60

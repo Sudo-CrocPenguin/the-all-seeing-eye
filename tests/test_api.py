@@ -89,6 +89,7 @@ async def test_health_check() -> None:
         "status": "ok",
         "persistence": "sqlalchemy",
         "database": "ok",
+        "migration": "not_configured",
     }
 
 
