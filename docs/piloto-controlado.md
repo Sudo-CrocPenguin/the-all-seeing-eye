@@ -14,6 +14,7 @@ Esta guia define el despliegue aceptable para `0.1.0-beta.1`. Es una beta intern
 - Base de datos separada de los sistemas auditados.
 - Backups de la base de auditoria fuera del alcance de usuarios operativos de los sistemas auditados.
 - `MISSED_HEARTBEAT_SCHEDULER_ENABLED=true` para registrar ausencias sin depender del endpoint manual.
+- Un solo worker de backend mientras el scheduler embebido este activo.
 - Politica manual de retencion definida antes del piloto.
 
 ## Variables Recomendadas
@@ -51,6 +52,10 @@ AGENT_ALLOW_INSECURE_TRANSPORT=false
 7. Ejecutar una prueba controlada de conexion hacia un servicio interno conocido.
 8. Consultar `/api/v1/audit/device-movements` y `/api/v1/audit/incident-window`.
 9. Revisar que el scheduler registre `AGENT_MISSED_HEARTBEAT` al detener un agente mas alla del timeout.
+
+## Scheduler Y Workers
+
+En `0.1.0-beta.1`, el scheduler de `AGENT_MISSED_HEARTBEAT` vive dentro del lifespan de FastAPI. Si ejecutas varios workers, cada worker arranca su propio scheduler. Para piloto controlado usa un solo worker. Antes de escalar a multiples workers, ejecuta el detector como job singleton externo o servicio separado.
 
 ## Retencion Temporal
 
