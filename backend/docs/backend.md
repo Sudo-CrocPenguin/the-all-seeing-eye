@@ -107,6 +107,7 @@ GET  /api/v1/devices
 POST /api/v1/audit/network-events
 GET  /api/v1/audit/network-events
 POST /api/v1/audit/lifecycle-events
+POST /api/v1/audit/lifecycle-events/detect-missed-heartbeats
 GET  /api/v1/audit/lifecycle-events
 ```
 
@@ -152,6 +153,36 @@ curl -X POST http://127.0.0.1:8000/api/v1/devices/agent-credentials \
 ```
 
 La respuesta incluye el token una sola vez para configurar el agente.
+
+## Estado Operativo Del Agente
+
+El backend mantiene el estado operativo del agente a partir de `devices.last_seen_at` y los eventos de ciclo de vida.
+
+### Que Es
+
+Es el mecanismo que permite saber si un agente sigue reportando, dejo de enviar heartbeats o volvio a reportar despues de una ausencia.
+
+### Para Que Sirve
+
+- Detectar equipos que dejaron de reportar sin un apagado limpio.
+- Registrar eventos `AGENT_MISSED_HEARTBEAT` con `last_seen_at`, `detected_at` y `downtime_seconds`.
+- Registrar `AGENT_RECOVERED` cuando el agente vuelve a reportar despues de un heartbeat perdido.
+- Dar una base confiable para alertas, reportes diarios y revisiones de incidentes.
+
+### Como Funciona
+
+`AGENT_HEARTBEAT_TIMEOUT_SECONDS` define cuantos segundos puede pasar un agente sin reportar antes de considerarse vencido. El valor por defecto es `180`.
+
+El detector se ejecuta con un endpoint administrativo protegido por `X-Provisioning-Token`:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/audit/lifecycle-events/detect-missed-heartbeats \
+  -H "X-Provisioning-Token: valor-administrativo-seguro"
+```
+
+El endpoint revisa todos los dispositivos registrados. Si `last_seen_at` es anterior al timeout configurado y el ultimo evento de ciclo de vida no explica ya la ausencia, crea un evento `AGENT_MISSED_HEARTBEAT`.
+
+Cuando un agente vuelve a enviar `AGENT_STARTED`, `AGENT_HEARTBEAT`, `AGENT_CONFIG_CHANGED` o un evento de red despues de estar marcado como perdido, el backend registra automaticamente `AGENT_RECOVERED` y actualiza `last_seen_at`.
 
 ## Filtros Disponibles
 
