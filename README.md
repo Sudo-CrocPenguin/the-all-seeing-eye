@@ -4,6 +4,11 @@ The All Seeing Eye es una plataforma de auditoria de red para computadores corpo
 
 El sistema esta pensado para ambientes empresariales donde los empleados son informados de la auditoria y los equipos pertenecen a la compania. No esta disenado para monitoreo oculto, evasion de controles del sistema operativo ni captura no consentida de informacion personal.
 
+## Documentacion Complementaria
+
+- [Contexto forense de la aplicacion](docs/contexto-forense.md)
+- [Beta local de historial forense](docs/beta-local-historial-forense.md)
+
 ## Para Que Sirve
 
 - Auditar actividad de red de equipos corporativos Windows y Linux.
@@ -257,7 +262,9 @@ La plataforma debe implementar controles de proteccion desde el inicio:
 
 ## Estado Actual
 
-El proyecto se encuentra en etapa de MVP. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. Las consultas de auditoria requieren token dedicado. El backend actualiza `last_seen_at` cuando recibe senales validas de agentes autenticados, detecta heartbeats perdidos y registra recuperaciones. El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes basicas, guardar eventos pendientes en cola local cuando el backend no responde y desplegarse como servicio administrado en Linux/Windows.
+El proyecto se encuentra preparando beta local. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. Las consultas de auditoria requieren token dedicado. El backend actualiza `last_seen_at` cuando recibe senales validas de agentes autenticados, detecta heartbeats perdidos, registra recuperaciones y expone una consulta de ventana forense por rango o marca exacta de tiempo.
+
+El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes enriquecidas con usuario local, PID, proceso, ejecutable y mapa local de servicios, guardar eventos pendientes en cola local cuando el backend no responde y desplegarse como servicio administrado en Linux/Windows.
 
 ## Despliegue Del Agente Como Servicio
 
