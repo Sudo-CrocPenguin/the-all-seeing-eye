@@ -143,7 +143,9 @@ class QueuedAuditApiClient:
         self.flush()
         try:
             return self._client.post_json(request.path, request.payload)
-        except AgentTransportError:
+        except AgentTransportError as exc:
+            if not exc.retryable:
+                raise
             self._queue.enqueue(request)
             self._schedule_next_flush()
             return {}
@@ -160,7 +162,9 @@ class QueuedAuditApiClient:
         for index, request in enumerate(queued_requests):
             try:
                 self._client.post_json(request.path, request.payload)
-            except AgentTransportError:
+            except AgentTransportError as exc:
+                if not exc.retryable:
+                    raise
                 remaining_requests.extend(queued_requests[index:])
                 self._queue.replace_all(remaining_requests)
                 self._schedule_next_flush()

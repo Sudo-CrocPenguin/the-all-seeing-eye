@@ -355,6 +355,33 @@ def test_queued_client_persists_request_when_backend_fails(tmp_path: Any) -> Non
     assert queued_requests[0].payload["device_id"] == "device-1"
 
 
+def test_queued_client_raises_and_does_not_queue_fatal_errors(tmp_path: Any) -> None:
+    queue_file = tmp_path / "agent-queue.jsonl"
+    client = QueuedAuditApiClient(
+        FatalPostJsonClient(),
+        LocalAgentRequestQueue(queue_file),
+        retry_backoff_seconds=30,
+    )
+
+    try:
+        client.send_network_event(
+            {
+                "device_id": "device-1",
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "Linux",
+                "agent_version": "0.1.0",
+                "occurred_at": "2026-07-27T14:00:00+00:00",
+                "protocol": "TCP",
+            },
+        )
+    except AgentTransportError as exc:
+        assert not exc.retryable
+    else:
+        raise AssertionError("La cola no debe ocultar errores fatales")
+
+    assert LocalAgentRequestQueue(queue_file).read_all() == []
+
+
 def test_queued_client_flushes_pending_requests_before_new_send(tmp_path: Any) -> None:
     queue_file = tmp_path / "agent-queue.jsonl"
     queue = LocalAgentRequestQueue(queue_file)
@@ -451,6 +478,11 @@ class FakeAuditApiClient:
 class FailingPostJsonClient:
     def post_json(self, _path: str, _payload: dict[str, object]) -> dict[str, object]:
         raise AgentTransportError("backend no disponible")
+
+
+class FatalPostJsonClient:
+    def post_json(self, _path: str, _payload: dict[str, object]) -> dict[str, object]:
+        raise AgentTransportError("token invalido", retryable=False)
 
 
 class RecordingPostJsonClient:
