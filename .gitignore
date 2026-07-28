@@ -10,6 +10,10 @@ htmlcov/
 .env
 .env.*
 !.env.example
+*.db
+*.sqlite
+*.sqlite3
+agent-queue.jsonl
+service-map.json
 dist/
 build/
-
