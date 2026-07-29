@@ -1,3 +1,4 @@
+import json
 import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -626,6 +627,87 @@ def test_api_client_sends_agent_token_header(monkeypatch: Any) -> None:
     assert captured_headers["X-agent-token"] == "agent-token"
 
 
+def test_api_client_requests_device_enrollment_with_fingerprint(monkeypatch: Any) -> None:
+    captured_request: dict[str, object] = {}
+
+    class FakeResponse:
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"status":"PENDING"}'
+
+    def fake_urlopen(request: Any, timeout: int) -> FakeResponse:
+        captured_request["url"] = request.full_url
+        captured_request["payload"] = request.data.decode()
+        captured_request["headers"] = dict(request.header_items())
+        assert timeout == 10
+        return FakeResponse()
+
+    monkeypatch.setattr("agent.app.transport.urlopen", fake_urlopen)
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(
+            NetworkInterface(
+                name="eth0",
+                local_ip="192.168.1.10",
+                mac_address="00:11:22:33:44:55",
+                is_up=True,
+            ),
+        ),
+    )
+    client = AuditApiClient("https://backend.local:8000", agent_token="agent-token")
+
+    response = client.request_device_enrollment(identity, "ABC123")
+
+    payload = json.loads(str(captured_request["payload"]))
+    assert response == {"status": "PENDING"}
+    assert captured_request["url"] == "https://backend.local:8000/api/v1/companies/enrollment-requests"
+    assert payload["device_id"] == "device-1"
+    assert payload["enrollment_code"] == "ABC123"
+    assert payload["device_fingerprint_snapshot"]["hostname"] == "DEV-LAPTOP-001"
+    assert payload["device_fingerprint_snapshot"]["primary_mac_address"] == "00:11:22:33:44:55"
+
+
+def test_api_client_lists_device_links(monkeypatch: Any) -> None:
+    captured_request: dict[str, object] = {}
+
+    class FakeResponse:
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'[{"company_id":"company-1","company_name":"Acme"}]'
+
+    def fake_urlopen(request: Any, timeout: int) -> FakeResponse:
+        captured_request["url"] = request.full_url
+        captured_request["method"] = request.get_method()
+        captured_request["headers"] = dict(request.header_items())
+        assert timeout == 10
+        return FakeResponse()
+
+    monkeypatch.setattr("agent.app.transport.urlopen", fake_urlopen)
+    client = AuditApiClient("https://backend.local:8000", agent_token="agent-token")
+
+    links = client.list_device_links("device-1")
+
+    assert captured_request["method"] == "GET"
+    assert captured_request["url"] == (
+        "https://backend.local:8000/api/v1/companies/device-links?device_id=device-1"
+    )
+    assert captured_request["headers"]["X-agent-token"] == "agent-token"
+    assert links == [{"company_id": "company-1", "company_name": "Acme"}]
+
+
 def test_api_client_rejects_non_local_http_backend_by_default() -> None:
     try:
         AuditApiClient("http://backend.local:8000", agent_token="agent-token")
@@ -794,6 +876,26 @@ def test_queued_client_discards_legacy_audit_events_without_company_context(
         "/api/v1/audit/network-events",
     ]
     assert queue.read_all() == []
+
+
+def test_queued_client_queues_revoke_link_when_backend_fails(tmp_path: Any) -> None:
+    queue_file = tmp_path / "agent-queue.jsonl"
+    client = QueuedAuditApiClient(
+        FailingPostJsonClient(),
+        LocalAgentRequestQueue(queue_file),
+        retry_backoff_seconds=30,
+    )
+
+    response = client.revoke_device_link(
+        device_id="device-1",
+        company_device_link_id="link-1",
+    )
+
+    assert response == {}
+    queued_requests = LocalAgentRequestQueue(queue_file).read_all()
+    assert len(queued_requests) == 1
+    assert queued_requests[0].path == "/api/v1/companies/device-links/link-1/revoke"
+    assert queued_requests[0].payload == {"device_id": "device-1"}
 
 
 def test_queued_client_queues_current_request_when_pending_flush_is_blocked(

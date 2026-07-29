@@ -4,14 +4,16 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from agent.app.device_identity import DeviceIdentity
 from agent.app.transport import (
     AgentTransportError,
     AuditApiClient,
+    build_device_enrollment_payload,
     build_device_registration_payload,
     build_lifecycle_event_payload,
+    build_revoke_device_link_payload,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -30,6 +32,16 @@ class QueuedRequest:
 
 class PostJsonClient(Protocol):
     def post_json(self, path: str, payload: dict[str, Any] | dict[str, object]) -> dict[str, Any]:
+        raise NotImplementedError
+
+
+class GetJsonClient(Protocol):
+    def get_json(
+        self,
+        path: str,
+        *,
+        params: dict[str, str] | None = None,
+    ) -> Any:
         raise NotImplementedError
 
 
@@ -161,6 +173,41 @@ class QueuedAuditApiClient:
             QueuedRequest(
                 path="/api/v1/audit/network-events",
                 payload=dict(payload),
+            ),
+        )
+
+    def request_device_enrollment(
+        self,
+        identity: DeviceIdentity,
+        enrollment_code: str,
+    ) -> dict[str, Any]:
+        return self._post_or_queue(
+            QueuedRequest(
+                path="/api/v1/companies/enrollment-requests",
+                payload=build_device_enrollment_payload(identity, enrollment_code),
+            ),
+        )
+
+    def list_device_links(self, device_id: str) -> list[dict[str, Any]]:
+        client = cast(GetJsonClient, self._client)
+        response = client.get_json(
+            "/api/v1/companies/device-links",
+            params={"device_id": device_id},
+        )
+        if not isinstance(response, list):
+            raise AgentTransportError("Respuesta inesperada del backend para device-links")
+        return [item for item in response if isinstance(item, dict)]
+
+    def revoke_device_link(
+        self,
+        *,
+        device_id: str,
+        company_device_link_id: str,
+    ) -> dict[str, Any]:
+        return self._post_or_queue(
+            QueuedRequest(
+                path=f"/api/v1/companies/device-links/{company_device_link_id}/revoke",
+                payload=build_revoke_device_link_payload(device_id),
             ),
         )
 
