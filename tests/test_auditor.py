@@ -128,10 +128,116 @@ def test_cli_access_verify_stores_session(
     assert "Sesion auditor guardada: session-1" in output
 
 
+def test_cli_enrollment_code_create_uses_local_session(
+    tmp_path: Any,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    session_file = tmp_path / "auditor-session.json"
+    _save_valid_session(session_file)
+    fake_client = FakeAuditorCliApiClient()
+    monkeypatch.setattr(auditor_cli, "_build_auditor_api_client", lambda _settings: fake_client)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "ase-auditor",
+            "--session-file",
+            str(session_file),
+            "enrollment-code",
+            "create",
+            "--ttl-seconds",
+            "3600",
+            "--max-uses",
+            "3",
+        ],
+    )
+
+    auditor_cli.main()
+
+    output = capsys.readouterr().out
+    assert fake_client.created_enrollment_code == ("company-1", "session-1", 3600, 3)
+    assert "Codigo de vinculacion: ENROLL-123" in output
+
+
+def test_cli_enrollment_requests_approve_uses_local_session(
+    tmp_path: Any,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    session_file = tmp_path / "auditor-session.json"
+    _save_valid_session(session_file)
+    fake_client = FakeAuditorCliApiClient()
+    monkeypatch.setattr(auditor_cli, "_build_auditor_api_client", lambda _settings: fake_client)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "ase-auditor",
+            "--session-file",
+            str(session_file),
+            "enrollment-requests",
+            "approve",
+            "--request",
+            "enrollment-1",
+        ],
+    )
+
+    auditor_cli.main()
+
+    output = capsys.readouterr().out
+    assert fake_client.reviewed_enrollment_request == (
+        "company-1",
+        "enrollment-1",
+        "session-1",
+        "ACCEPT",
+    )
+    assert "Solicitud revisada: enrollment-1 status=ACCEPTED link=link-1" in output
+
+
+def test_cli_summary_uses_local_session(
+    tmp_path: Any,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    session_file = tmp_path / "auditor-session.json"
+    _save_valid_session(session_file)
+    fake_client = FakeAuditorCliApiClient()
+    monkeypatch.setattr(auditor_cli, "_build_auditor_api_client", lambda _settings: fake_client)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["ase-auditor", "--session-file", str(session_file), "summary"],
+    )
+
+    auditor_cli.main()
+
+    output = capsys.readouterr().out
+    assert fake_client.requested_summary == ("company-1", "session-1")
+    assert "Company: Acme (company-1)" in output
+    assert "Connected devices: 2" in output
+
+
+def _save_valid_session(session_file: Path) -> None:
+    JsonAuditorSessionStore(session_file).save(
+        AuditorSessionState(
+            auditor_session_id="session-1",
+            company_id="company-1",
+            device_id="device-1",
+            created_at="2026-07-29T10:00:00+00:00",
+            expires_at="2999-01-01T00:00:00+00:00",
+            scopes=("company:read", "devices:read", "devices:approve", "audit:read"),
+        ),
+    )
+
+
 class FakeAuditorCliApiClient:
     def __init__(self) -> None:
         self.created_company: tuple[str, str] | None = None
         self.verified_access: tuple[str, str, str, str] | None = None
+        self.created_enrollment_code: tuple[str, str, int, int] | None = None
+        self.reviewed_enrollment_request: tuple[str, str, str, str] | None = None
+        self.requested_summary: tuple[str, str] | None = None
 
     def create_company(self, *, name: str, phone_number: str) -> dict[str, Any]:
         self.created_company = (name, phone_number)
@@ -177,4 +283,98 @@ class FakeAuditorCliApiClient:
             "expires_at": "2026-07-29T22:00:00+00:00",
             "scopes": ["company:read", "devices:read", "devices:approve", "audit:read"],
             "revoked_at": None,
+        }
+
+    def create_enrollment_code(
+        self,
+        *,
+        company_id: str,
+        auditor_session_id: str,
+        ttl_seconds: int,
+        max_uses: int,
+    ) -> dict[str, Any]:
+        self.created_enrollment_code = (
+            company_id,
+            auditor_session_id,
+            ttl_seconds,
+            max_uses,
+        )
+        return {
+            "enrollment_code_id": "code-1",
+            "company_id": company_id,
+            "code": "ENROLL-123",
+            "created_at": "2026-07-29T10:00:00+00:00",
+            "expires_at": "2026-07-29T11:00:00+00:00",
+            "max_uses": max_uses,
+            "used_count": 0,
+        }
+
+    def list_enrollment_requests(
+        self,
+        *,
+        company_id: str,
+        auditor_session_id: str,
+        status_filter: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                "enrollment_request_id": "enrollment-1",
+                "company_id": company_id,
+                "device_id": "device-1",
+                "requested_at": "2026-07-29T10:00:00+00:00",
+                "status": status_filter or "PENDING",
+                "reviewed_by_auditor_session_id": None,
+                "reviewed_at": None,
+                "device_fingerprint_snapshot": {},
+            },
+        ]
+
+    def review_enrollment_request(
+        self,
+        *,
+        company_id: str,
+        enrollment_request_id: str,
+        auditor_session_id: str,
+        decision: str,
+    ) -> dict[str, Any]:
+        self.reviewed_enrollment_request = (
+            company_id,
+            enrollment_request_id,
+            auditor_session_id,
+            decision,
+        )
+        return {
+            "enrollment_request_id": enrollment_request_id,
+            "company_id": company_id,
+            "device_id": "device-1",
+            "status": "ACCEPTED" if decision == "ACCEPT" else "DENIED",
+            "link": {
+                "company_device_link_id": "link-1",
+                "company_id": company_id,
+                "device_id": "device-1",
+                "linked_at": "2026-07-29T10:01:00+00:00",
+                "status": "ACTIVE",
+                "revoked_at": None,
+                "revoked_by_device": False,
+                "revoked_by_auditor_session_id": None,
+            },
+        }
+
+    def get_company_summary(
+        self,
+        *,
+        company_id: str,
+        auditor_session_id: str,
+    ) -> dict[str, Any]:
+        self.requested_summary = (company_id, auditor_session_id)
+        return {
+            "company_id": company_id,
+            "name": "Acme",
+            "status": "ACTIVE",
+            "linked_devices": 3,
+            "active_links": 3,
+            "connected_devices": 2,
+            "without_report_devices": 1,
+            "pending_enrollment_requests": 4,
+            "active_auditor_sessions": 1,
         }
