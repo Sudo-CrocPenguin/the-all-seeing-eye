@@ -21,6 +21,8 @@ Variables principales:
 AGENT_BACKEND_URL=http://127.0.0.1:8000
 AGENT_ENV_FILE=
 AGENT_DEVICE_ID=
+AGENT_COMPANY_ID=
+AGENT_COMPANY_DEVICE_LINK_ID=
 AGENT_TOKEN=
 AGENT_TOKEN_HEADER=X-Agent-Token
 AGENT_HEARTBEAT_INTERVAL_SECONDS=60
@@ -35,6 +37,8 @@ AGENT_ALLOW_INSECURE_TRANSPORT=false
 ```
 
 `AGENT_DEVICE_ID` puede quedar vacio. En ese caso el agente genera un identificador estable a partir de datos tecnicos del equipo.
+
+`AGENT_COMPANY_ID` y `AGENT_COMPANY_DEVICE_LINK_ID` definen la empresa activa para captura. El backend rechaza eventos de red y ciclo de vida sin estos campos o con un vinculo que no este `ACTIVE`.
 
 `AGENT_TOKEN` es obligatorio para reportar al backend. Se obtiene desde el endpoint de provision del backend y debe corresponder al `device_id` del equipo.
 

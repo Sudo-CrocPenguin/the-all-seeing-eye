@@ -111,14 +111,14 @@ La evidencia `public_ip` nunca se toma del JSON enviado por el agente. Si el age
 Consulta directa por rango:
 
 ```bash
-curl -H "X-Auditor-Token: dev-auditor-token" \
+curl -H "X-Auditor-Session: <auditor_session_id>" \
   "http://localhost:8000/api/v1/audit/incident-window?from=2026-07-27T14:00:00-05:00&to=2026-07-27T14:15:00-05:00"
 ```
 
 Consulta alrededor de una marca exacta:
 
 ```bash
-curl -H "X-Auditor-Token: dev-auditor-token" \
+curl -H "X-Auditor-Session: <auditor_session_id>" \
   "http://localhost:8000/api/v1/audit/incident-window?at=2026-07-27T14:03:00-05:00&window_seconds=900"
 ```
 
@@ -133,7 +133,7 @@ Los equipos activos se calculan con una consulta independiente del `limit` de ev
 ## Consulta De Todos Los Movimientos De Un Equipo
 
 ```bash
-curl -H "X-Auditor-Token: dev-auditor-token" \
+curl -H "X-Auditor-Session: <auditor_session_id>" \
   "http://localhost:8000/api/v1/audit/device-movements?device_id=DEV-LAPTOP-042&limit=500"
 ```
 
@@ -160,12 +160,13 @@ La base local tambien crea la vista `device_movements` para revisar el mismo his
 
 1. Iniciar el backend local con tokens de desarrollo.
 2. Provisionar un token para el equipo de prueba.
-3. Crear `service-map.json` con los servicios internos relevantes.
-4. Configurar el agente con `AGENT_BACKEND_URL`, `AGENT_DEVICE_ID`, `AGENT_TOKEN` y `AGENT_SERVICE_MAP_FILE`.
-5. Ejecutar el agente en el dispositivo.
-6. Abrir una conexion controlada, por ejemplo hacia una base de datos o servicio interno de prueba.
-7. Consultar `/api/v1/audit/incident-window` alrededor de la hora de la prueba.
-8. Validar que aparezcan equipo, usuario local, proceso, destino, servicio y eventos de ciclo de vida.
+3. Crear empresa auditora, sesion `X-Auditor-Session` y vincular el equipo.
+4. Crear `service-map.json` con los servicios internos relevantes.
+5. Configurar el agente con `AGENT_BACKEND_URL`, `AGENT_DEVICE_ID`, `AGENT_TOKEN`, `AGENT_COMPANY_ID`, `AGENT_COMPANY_DEVICE_LINK_ID` y `AGENT_SERVICE_MAP_FILE`.
+6. Ejecutar el agente en el dispositivo.
+7. Abrir una conexion controlada, por ejemplo hacia una base de datos o servicio interno de prueba.
+8. Consultar `/api/v1/audit/incident-window` alrededor de la hora de la prueba.
+9. Validar que aparezcan equipo, empresa, usuario local, proceso, destino, servicio y eventos de ciclo de vida.
 
 ## Limites De La Beta
 

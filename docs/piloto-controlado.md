@@ -46,12 +46,14 @@ AGENT_ALLOW_INSECURE_TRANSPORT=false
 1. Crear una base de auditoria dedicada.
 2. Ejecutar `alembic upgrade head`.
 3. Verificar `/health`; debe reportar `database=ok` y `migration=ok` cuando se exige revision de migracion.
-4. Provisionar tokens por dispositivo.
-5. Instalar el agente como servicio visible en los equipos autorizados.
-6. Confirmar que cada equipo reporta `AGENT_STARTED` y `AGENT_HEARTBEAT`.
-7. Ejecutar una prueba controlada de conexion hacia un servicio interno conocido.
-8. Consultar `/api/v1/audit/device-movements` y `/api/v1/audit/incident-window`.
-9. Revisar que el scheduler registre `AGENT_MISSED_HEARTBEAT` al detener un agente mas alla del timeout.
+4. Crear empresa auditora, obtener sesion `X-Auditor-Session` y vincular dispositivos.
+5. Provisionar tokens por dispositivo.
+6. Configurar `AGENT_COMPANY_ID` y `AGENT_COMPANY_DEVICE_LINK_ID` en cada agente.
+7. Instalar el agente como servicio visible en los equipos autorizados.
+8. Confirmar que cada equipo reporta `AGENT_STARTED` y `AGENT_HEARTBEAT`.
+9. Ejecutar una prueba controlada de conexion hacia un servicio interno conocido.
+10. Consultar `/api/v1/audit/device-movements` y `/api/v1/audit/incident-window`.
+11. Revisar que el scheduler registre `AGENT_MISSED_HEARTBEAT` al detener un agente mas alla del timeout.
 
 ## Scheduler Y Workers
 
@@ -70,7 +72,7 @@ La retencion automatica queda como requisito para una version posterior antes de
 
 ## Limites Que Siguen Abiertos
 
-- No hay autenticacion por usuario para auditoria; se usan secretos compartidos fuertes.
+- No hay autenticacion por usuario final; los auditores usan sesiones temporales por empresa.
 - No hay mTLS ni certificados cliente para agentes.
 - No hay retencion automatica.
 - No hay almacenamiento inalterable/WORM.

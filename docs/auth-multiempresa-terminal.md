@@ -527,13 +527,17 @@ AuditorSession
 ```
 
 Tambien expone endpoints para crear empresas, solicitar y verificar acceso auditor,
-generar codigos de vinculacion, solicitar vinculacion de dispositivos, revisar solicitudes
-y consultar resumen de empresa.
+generar codigos de vinculacion, solicitar vinculacion de dispositivos, revisar solicitudes,
+consultar resumen de empresa y consultar eventos de auditoria filtrados por sesion de
+empresa.
+
+Los eventos de red y ciclo de vida ya guardan `company_id` y
+`company_device_link_id`. El backend valida que el vinculo este activo al ingerir eventos
+nuevos y conserva los eventos historicos aunque el vinculo se revoque despues.
 
 Pendiente para siguientes iteraciones:
 
-- asociar cada evento de red/ciclo de vida a `company_id`
-- empresa activa local en el agente
+- empresa activa local persistente en el agente
 - menu terminal de dispositivo
 - menu terminal de auditor
 - desvinculacion libre con notificacion
