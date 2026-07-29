@@ -1,13 +1,18 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import httpx
 import pytest
 from fastapi import FastAPI
 
 from backend.app.audit.application.heartbeat_scheduler import detect_missed_heartbeats_once
+from backend.app.companies.infrastructure.sqlalchemy_repositories import (
+    SQLAlchemyCompanyDeviceLinkRepository,
+)
 from backend.app.main import create_app
 from backend.app.shared.config import Settings
+from backend.app.shared.container import RuntimeContainer
 
 PROVISIONING_TOKEN = "test-provisioning-token"
 AUDITOR_TOKEN = "test-auditor-token"
@@ -195,6 +200,18 @@ async def link_device_to_company(
         company_device_link_id=company_device_link_id,
         auditor_session_id=resolved_auditor_session_id,
     )
+
+
+def revoke_company_link(app: FastAPI, company_device_link_id: str) -> None:
+    runtime_container = cast(RuntimeContainer, app.state.container)
+    assert runtime_container.session_factory is not None
+    with runtime_container.session_factory() as session:
+        repository = SQLAlchemyCompanyDeviceLinkRepository(session)
+        link = repository.find_by_id(company_device_link_id)
+        assert link is not None
+        link.revoke_by_device(datetime(2026, 7, 27, 16, 0, tzinfo=UTC))
+        repository.save(link)
+        session.commit()
 
 
 @pytest.mark.anyio
@@ -780,6 +797,193 @@ async def test_query_device_movements_combines_network_and_lifecycle_events() ->
 
 
 @pytest.mark.anyio
+async def test_auditor_session_only_sees_events_for_its_company() -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
+        await register_test_device(client, agent_token=agent_token)
+        first_context = await link_device_to_company(
+            client,
+            device_id="device-1",
+            agent_token=agent_token,
+            company_name="Empresa A",
+        )
+        second_context = await link_device_to_company(
+            client,
+            device_id="device-1",
+            agent_token=agent_token,
+            company_name="Empresa B",
+        )
+
+        first_event_response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "occurred_at": "2026-07-27T14:03:00+00:00",
+                "device_id": "device-1",
+                **first_context.event_context(),
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_host": "empresa-a.local",
+                "destination_ip": "10.0.0.10",
+                "destination_port": 443,
+            },
+        )
+        assert first_event_response.status_code == 201
+        second_event_response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "occurred_at": "2026-07-27T14:04:00+00:00",
+                "device_id": "device-1",
+                **second_context.event_context(),
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_host": "empresa-b.local",
+                "destination_ip": "10.0.0.20",
+                "destination_port": 443,
+            },
+        )
+        assert second_event_response.status_code == 201
+
+        first_company_response = await client.get(
+            "/api/v1/audit/network-events",
+            headers=auditor_session_headers(first_context.auditor_session_id),
+            params={"device_id": "device-1"},
+        )
+        second_company_response = await client.get(
+            "/api/v1/audit/network-events",
+            headers=auditor_session_headers(second_context.auditor_session_id),
+            params={"device_id": "device-1"},
+        )
+
+    assert first_company_response.status_code == 200
+    assert [event["destination_host"] for event in first_company_response.json()] == [
+        "empresa-a.local",
+    ]
+    assert first_company_response.json()[0]["company_id"] == first_context.company_id
+    assert second_company_response.status_code == 200
+    assert [event["destination_host"] for event in second_company_response.json()] == [
+        "empresa-b.local",
+    ]
+    assert second_company_response.json()[0]["company_id"] == second_context.company_id
+
+
+@pytest.mark.anyio
+async def test_network_event_rejects_company_link_from_another_company() -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
+        await register_test_device(client, agent_token=agent_token)
+        first_context = await link_device_to_company(
+            client,
+            device_id="device-1",
+            agent_token=agent_token,
+            company_name="Empresa A",
+        )
+        second_context = await link_device_to_company(
+            client,
+            device_id="device-1",
+            agent_token=agent_token,
+            company_name="Empresa B",
+        )
+
+        response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "occurred_at": "2026-07-27T14:03:00+00:00",
+                "device_id": "device-1",
+                "company_id": first_context.company_id,
+                "company_device_link_id": second_context.company_device_link_id,
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_ip": "10.0.0.10",
+                "destination_port": 443,
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "El vinculo no pertenece a esta empresa"
+
+
+@pytest.mark.anyio
+async def test_audit_history_remains_queryable_after_company_link_is_revoked() -> None:
+    app = create_test_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
+        await register_test_device(client, agent_token=agent_token)
+        company_context = await link_device_to_company(
+            client,
+            device_id="device-1",
+            agent_token=agent_token,
+        )
+
+        event_response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "occurred_at": "2026-07-27T14:03:00+00:00",
+                "device_id": "device-1",
+                **company_context.event_context(),
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_host": "historial.local",
+                "destination_ip": "10.0.0.30",
+                "destination_port": 443,
+            },
+        )
+        assert event_response.status_code == 201
+        revoke_company_link(app, company_context.company_device_link_id)
+
+        historical_response = await client.get(
+            "/api/v1/audit/network-events",
+            headers=auditor_session_headers(company_context.auditor_session_id),
+            params={"device_id": "device-1"},
+        )
+        new_event_response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "occurred_at": "2026-07-27T14:05:00+00:00",
+                "device_id": "device-1",
+                **company_context.event_context(),
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_host": "bloqueado.local",
+                "destination_ip": "10.0.0.40",
+                "destination_port": 443,
+            },
+        )
+
+    assert historical_response.status_code == 200
+    assert [event["destination_host"] for event in historical_response.json()] == [
+        "historial.local",
+    ]
+    assert new_event_response.status_code == 422
+    assert (
+        new_event_response.json()["detail"]
+        == "El vinculo empresa-dispositivo no esta activo"
+    )
+
+
+@pytest.mark.anyio
 async def test_query_incident_window_accepts_exact_timestamp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1108,7 +1312,7 @@ async def test_agent_writes_require_valid_token() -> None:
 
 
 @pytest.mark.anyio
-async def test_audit_queries_require_auditor_token() -> None:
+async def test_audit_queries_require_auditor_credentials() -> None:
     transport = httpx.ASGITransport(app=create_test_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         devices_response = await client.get("/api/v1/devices")
@@ -1127,6 +1331,38 @@ async def test_audit_queries_require_auditor_token() -> None:
         )
 
     assert devices_response.status_code == 401
+    assert network_events_response.status_code == 401
+    assert lifecycle_events_response.status_code == 401
+    assert device_movements_response.status_code == 401
+    assert incident_window_response.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_audit_event_queries_reject_global_auditor_token() -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        network_events_response = await client.get(
+            "/api/v1/audit/network-events",
+            headers=auditor_headers(),
+        )
+        lifecycle_events_response = await client.get(
+            "/api/v1/audit/lifecycle-events",
+            headers=auditor_headers(),
+        )
+        device_movements_response = await client.get(
+            "/api/v1/audit/device-movements",
+            headers=auditor_headers(),
+            params={"device_id": "device-1"},
+        )
+        incident_window_response = await client.get(
+            "/api/v1/audit/incident-window",
+            headers=auditor_headers(),
+            params={
+                "from": "2026-07-27T14:00:00+00:00",
+                "to": "2026-07-27T14:15:00+00:00",
+            },
+        )
+
     assert network_events_response.status_code == 401
     assert lifecycle_events_response.status_code == 401
     assert device_movements_response.status_code == 401
