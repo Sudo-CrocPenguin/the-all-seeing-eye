@@ -127,6 +127,28 @@ class AgentState:
             linked_companies=tuple(linked_companies),
         )
 
+    def replace_linked_companies(
+        self,
+        linked_companies: tuple[LinkedCompanyState, ...],
+    ) -> "AgentState":
+        active_company_id = self.active_company_id
+        active_company_device_link_id = self.active_company_device_link_id
+        selected_company = _find_matching_active_company(
+            linked_companies,
+            active_company_id,
+            active_company_device_link_id,
+        )
+        if selected_company is None:
+            active_company_id = None
+            active_company_device_link_id = None
+        return AgentState(
+            device_id=self.device_id,
+            recording_enabled=self.recording_enabled,
+            active_company_id=active_company_id,
+            active_company_device_link_id=active_company_device_link_id,
+            linked_companies=linked_companies,
+        )
+
     def select_company(self, company_id: str) -> "AgentState":
         selected_company = self.find_active_company(company_id)
         if selected_company is None:
@@ -221,3 +243,20 @@ def _require_object(raw_value: object, field_name: str) -> dict[str, Any]:
     if not isinstance(raw_value, dict):
         raise AgentStateError(f"{field_name} debe contener objetos JSON")
     return raw_value
+
+
+def _find_matching_active_company(
+    linked_companies: tuple[LinkedCompanyState, ...],
+    company_id: str | None,
+    company_device_link_id: str | None,
+) -> LinkedCompanyState | None:
+    if company_id is None or company_device_link_id is None:
+        return None
+    for company in linked_companies:
+        if (
+            company.company_id == company_id
+            and company.company_device_link_id == company_device_link_id
+            and company.is_active
+        ):
+            return company
+    return None

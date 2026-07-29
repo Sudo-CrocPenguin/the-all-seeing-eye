@@ -120,6 +120,248 @@ def test_cli_preserves_service_map_file_from_environment(
     assert captured["run_once"] is True
 
 
+def test_cli_status_works_without_backend(
+    tmp_path: Any,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    monkeypatch.delenv("AGENT_TOKEN", raising=False)
+    monkeypatch.setenv("AGENT_COMPANY_ID", "")
+    monkeypatch.setenv("AGENT_COMPANY_DEVICE_LINK_ID", "")
+    monkeypatch.setattr(
+        agent_cli,
+        "DeviceIdentityCollector",
+        lambda _settings: FakeIdentityCollector(identity),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent",
+            "--state-file",
+            str(tmp_path / "agent-state.json"),
+            "--queue-file",
+            str(tmp_path / "agent-queue.jsonl"),
+            "status",
+        ],
+    )
+
+    agent_cli.main()
+
+    output = capsys.readouterr().out
+    assert "Device: DEV-LAPTOP-001" in output
+    assert "Recording: OFF" in output
+    assert "Queue: 0 pending events" in output
+    assert "Backend: not configured" in output
+
+
+def test_cli_companies_syncs_local_state(
+    tmp_path: Any,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    state_file = tmp_path / "agent-state.json"
+    fake_client = FakeCliApiClient(
+        links=[
+            {
+                "company_id": "company-1",
+                "company_device_link_id": "link-1",
+                "company_name": "Acme",
+                "device_id": "device-1",
+                "linked_at": "2026-07-29T10:00:00Z",
+                "status": "ACTIVE",
+            },
+        ],
+    )
+    monkeypatch.setenv("AGENT_TOKEN", "agent-token")
+    monkeypatch.setattr(
+        agent_cli,
+        "DeviceIdentityCollector",
+        lambda _settings: FakeIdentityCollector(identity),
+    )
+    monkeypatch.setattr(agent_cli, "_build_agent_api_client", lambda _settings: fake_client)
+    monkeypatch.setattr(sys, "argv", ["agent", "--state-file", str(state_file), "companies"])
+
+    agent_cli.main()
+
+    state = JsonAgentStateStore(state_file).load()
+    output = capsys.readouterr().out
+    assert state.linked_companies[0].company_name == "Acme"
+    assert "Acme (company-1) - ACTIVE" in output
+
+
+def test_cli_use_company_selects_active_company_and_reports_change(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    state_file = tmp_path / "agent-state.json"
+    JsonAgentStateStore(state_file).save(
+        AgentState(device_id="device-1").upsert_link(
+            LinkedCompanyState(
+                company_id="company-1",
+                company_device_link_id="link-1",
+                company_name="Acme",
+            ),
+        ),
+    )
+    fake_client = FakeCliApiClient()
+    monkeypatch.setenv("AGENT_TOKEN", "agent-token")
+    monkeypatch.setattr(
+        agent_cli,
+        "DeviceIdentityCollector",
+        lambda _settings: FakeIdentityCollector(identity),
+    )
+    monkeypatch.setattr(agent_cli, "_build_agent_api_client", lambda _settings: fake_client)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent", "--state-file", str(state_file), "use-company", "--company", "company-1"],
+    )
+
+    agent_cli.main()
+
+    state = JsonAgentStateStore(state_file).load()
+    assert state.active_company_id == "company-1"
+    assert fake_client.lifecycle_events == [
+        ("AGENT_CONFIG_CHANGED", "company-1", "active company changed"),
+    ]
+
+
+def test_cli_stop_recording_sends_lifecycle_before_disabling(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    state_file = tmp_path / "agent-state.json"
+    JsonAgentStateStore(state_file).save(
+        AgentState(
+            device_id="device-1",
+            recording_enabled=True,
+            active_company_id="company-1",
+            active_company_device_link_id="link-1",
+            linked_companies=(
+                LinkedCompanyState(
+                    company_id="company-1",
+                    company_device_link_id="link-1",
+                    company_name="Acme",
+                ),
+            ),
+        ),
+    )
+    fake_client = FakeCliApiClient()
+    monkeypatch.setenv("AGENT_TOKEN", "agent-token")
+    monkeypatch.setattr(
+        agent_cli,
+        "DeviceIdentityCollector",
+        lambda _settings: FakeIdentityCollector(identity),
+    )
+    monkeypatch.setattr(agent_cli, "_build_agent_api_client", lambda _settings: fake_client)
+    monkeypatch.setattr(sys, "argv", ["agent", "--state-file", str(state_file), "stop-recording"])
+
+    agent_cli.main()
+
+    state = JsonAgentStateStore(state_file).load()
+    assert not state.recording_enabled
+    assert [event[0] for event in fake_client.lifecycle_events] == [
+        "AGENT_STOPPING",
+        "AGENT_STOPPED",
+    ]
+
+
+def test_cli_unlink_offline_removes_local_link_and_queues_request(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    state_file = tmp_path / "agent-state.json"
+    queue_file = tmp_path / "agent-queue.jsonl"
+    JsonAgentStateStore(state_file).save(
+        AgentState(
+            device_id="device-1",
+            recording_enabled=True,
+            active_company_id="company-1",
+            active_company_device_link_id="link-1",
+            linked_companies=(
+                LinkedCompanyState(
+                    company_id="company-1",
+                    company_device_link_id="link-1",
+                    company_name="Acme",
+                ),
+            ),
+        ),
+    )
+    queued_client = QueuedAuditApiClient(
+        FailingPostJsonClient(),
+        LocalAgentRequestQueue(queue_file),
+        retry_backoff_seconds=30,
+    )
+    monkeypatch.setenv("AGENT_TOKEN", "agent-token")
+    monkeypatch.setattr(
+        agent_cli,
+        "DeviceIdentityCollector",
+        lambda _settings: FakeIdentityCollector(identity),
+    )
+    monkeypatch.setattr(agent_cli, "_build_agent_api_client", lambda _settings: queued_client)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent",
+            "--state-file",
+            str(state_file),
+            "--queue-file",
+            str(queue_file),
+            "unlink",
+            "--company",
+            "company-1",
+        ],
+    )
+
+    agent_cli.main()
+
+    state = JsonAgentStateStore(state_file).load()
+    queued_requests = LocalAgentRequestQueue(queue_file).read_all()
+    assert state.linked_companies == ()
+    assert state.active_company_id is None
+    assert [request.path for request in queued_requests] == [
+        "/api/v1/audit/lifecycle-events",
+        "/api/v1/companies/device-links/link-1/revoke",
+    ]
+
+
 def test_environment_variables_override_env_file(tmp_path: Any, monkeypatch: Any) -> None:
     monkeypatch.setenv("AGENT_BACKEND_URL", "http://env.local:8000")
     env_file = tmp_path / "agent.env"
@@ -1114,6 +1356,52 @@ class FakeAgentStateStore:
         self.state = state
         self.saved_states.append(state)
         return state
+
+
+class FakeCliApiClient:
+    def __init__(self, links: list[dict[str, object]] | None = None) -> None:
+        self.links = links or []
+        self.registered_devices: list[str] = []
+        self.enrollment_codes: list[str] = []
+        self.lifecycle_events: list[tuple[str, str, str | None]] = []
+        self.revoked_links: list[tuple[str, str]] = []
+
+    def register_device(self, identity: DeviceIdentity) -> dict[str, object]:
+        self.registered_devices.append(identity.device_id)
+        return {}
+
+    def request_device_enrollment(
+        self,
+        _identity: DeviceIdentity,
+        enrollment_code: str,
+    ) -> dict[str, object]:
+        self.enrollment_codes.append(enrollment_code)
+        return {"company_id": "company-1", "status": "PENDING"}
+
+    def list_device_links(self, _device_id: str) -> list[dict[str, object]]:
+        return self.links
+
+    def revoke_device_link(
+        self,
+        *,
+        device_id: str,
+        company_device_link_id: str,
+    ) -> dict[str, object]:
+        self.revoked_links.append((device_id, company_device_link_id))
+        return {}
+
+    def send_lifecycle_event(
+        self,
+        _identity: DeviceIdentity,
+        event_type: str,
+        _occurred_at: str,
+        *,
+        company_id: str,
+        company_device_link_id: str,
+        reason: str | None = None,
+    ) -> dict[str, object]:
+        self.lifecycle_events.append((event_type, company_id, reason))
+        return {"company_device_link_id": company_device_link_id}
 
 
 class FailingPostJsonClient:
