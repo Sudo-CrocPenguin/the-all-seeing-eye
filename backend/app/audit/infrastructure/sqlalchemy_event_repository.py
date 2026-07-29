@@ -1,6 +1,7 @@
+from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from backend.app.audit.domain.entities import (
@@ -151,6 +152,19 @@ class SQLAlchemyNetworkAuditEventRepository:
         statement = self._apply_filters(statement, filters)
         return set(self._session.scalars(statement).all())
 
+    def latest_seen_at_by_device(self, filters: NetworkAuditEventFilters) -> dict[str, datetime]:
+        statement = select(
+            NetworkAuditEventModel.device_id,
+            func.max(NetworkAuditEventModel.occurred_at),
+        )
+        statement = self._apply_filters(statement, filters)
+        statement = statement.group_by(NetworkAuditEventModel.device_id)
+        return {
+            device_id: ensure_aware(latest_seen_at)
+            for device_id, latest_seen_at in self._session.execute(statement).all()
+            if latest_seen_at is not None
+        }
+
     def _apply_filters(
         self,
         statement: Select[Any],
@@ -213,6 +227,22 @@ class SQLAlchemyAgentLifecycleEventRepository:
         statement = select(AgentLifecycleEventModel.device_id).distinct()
         statement = self._apply_filters(statement, filters)
         return set(self._session.scalars(statement).all())
+
+    def latest_seen_at_by_device(
+        self,
+        filters: AgentLifecycleEventFilters,
+    ) -> dict[str, datetime]:
+        statement = select(
+            AgentLifecycleEventModel.device_id,
+            func.max(AgentLifecycleEventModel.occurred_at),
+        )
+        statement = self._apply_filters(statement, filters)
+        statement = statement.group_by(AgentLifecycleEventModel.device_id)
+        return {
+            device_id: ensure_aware(latest_seen_at)
+            for device_id, latest_seen_at in self._session.execute(statement).all()
+            if latest_seen_at is not None
+        }
 
     def _apply_filters(
         self,

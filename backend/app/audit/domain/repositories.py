@@ -41,6 +41,9 @@ class NetworkAuditEventRepository(Protocol):
     def list_device_ids(self, filters: NetworkAuditEventFilters) -> set[str]:
         raise NotImplementedError
 
+    def latest_seen_at_by_device(self, filters: NetworkAuditEventFilters) -> dict[str, datetime]:
+        raise NotImplementedError
+
 
 class AgentLifecycleEventRepository(Protocol):
     def save(self, event: AgentLifecycleEvent) -> AgentLifecycleEvent:
@@ -50,4 +53,10 @@ class AgentLifecycleEventRepository(Protocol):
         raise NotImplementedError
 
     def list_device_ids(self, filters: AgentLifecycleEventFilters) -> set[str]:
+        raise NotImplementedError
+
+    def latest_seen_at_by_device(
+        self,
+        filters: AgentLifecycleEventFilters,
+    ) -> dict[str, datetime]:
         raise NotImplementedError

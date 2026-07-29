@@ -94,6 +94,14 @@ class QueryIncidentWindowUseCase:
             self._network_event_repository.list_device_ids(network_filters)
             | self._lifecycle_event_repository.list_device_ids(lifecycle_filters)
         )
+        last_seen_at_by_device = _merge_last_seen_maps(
+            self._network_event_repository.latest_seen_at_by_device(
+                NetworkAuditEventFilters(company_id=command.company_id),
+            ),
+            self._lifecycle_event_repository.latest_seen_at_by_device(
+                AgentLifecycleEventFilters(company_id=command.company_id),
+            ),
+        )
         company_device_ids = {
             link.device_id
             for link in self._company_device_link_repository.list_by_company(command.company_id)
@@ -107,6 +115,7 @@ class QueryIncidentWindowUseCase:
             network_events=network_events,
             lifecycle_events=lifecycle_events,
             active_device_ids=active_device_ids,
+            last_seen_at_by_device=last_seen_at_by_device,
             from_datetime=from_datetime,
             to_datetime=to_datetime,
         )
@@ -140,6 +149,7 @@ def _build_device_statuses(
     network_events: list[NetworkAuditEvent],
     lifecycle_events: list[AgentLifecycleEvent],
     active_device_ids: set[str],
+    last_seen_at_by_device: dict[str, datetime],
     from_datetime: datetime,
     to_datetime: datetime,
 ) -> list[IncidentDeviceStatus]:
@@ -154,6 +164,7 @@ def _build_device_statuses(
             device=registered_devices.get(device_id),
             latest_event=events_by_device.get(device_id),
             has_window_event=device_id in active_device_ids,
+            last_seen_at=last_seen_at_by_device.get(device_id),
             from_datetime=from_datetime,
         )
         for device_id in device_ids
@@ -189,15 +200,28 @@ def _latest_event_by_device(
     return latest_events
 
 
+def _merge_last_seen_maps(
+    first: dict[str, datetime],
+    second: dict[str, datetime],
+) -> dict[str, datetime]:
+    merged = dict(first)
+    for device_id, last_seen_at in second.items():
+        current = merged.get(device_id)
+        if current is None or ensure_aware(last_seen_at) > ensure_aware(current):
+            merged[device_id] = ensure_aware(last_seen_at)
+    return merged
+
+
 def _build_device_status(
     *,
     device_id: str,
     device: Device | None,
     latest_event: NetworkAuditEvent | AgentLifecycleEvent | None,
     has_window_event: bool,
+    last_seen_at: datetime | None,
     from_datetime: datetime,
 ) -> IncidentDeviceStatus:
-    last_seen_at = ensure_aware(device.last_seen_at) if device and device.last_seen_at else None
+    last_seen_at = ensure_aware(last_seen_at) if last_seen_at is not None else None
     if has_window_event:
         status: IncidentDeviceStatusValue = "ACTIVE_IN_WINDOW"
     elif last_seen_at is None or last_seen_at < from_datetime:

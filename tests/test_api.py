@@ -876,6 +876,90 @@ async def test_auditor_session_only_sees_events_for_its_company() -> None:
 
 
 @pytest.mark.anyio
+async def test_incident_window_last_seen_at_is_scoped_by_company(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    registered_at = datetime(2026, 7, 27, 13, 0, tzinfo=UTC)
+    reported_at = datetime(2026, 7, 27, 15, 0, tzinfo=UTC)
+    monkeypatch.setattr(
+        "backend.app.devices.application.register_device.utc_now",
+        lambda: registered_at,
+    )
+    monkeypatch.setattr(
+        "backend.app.audit.application.record_agent_activity.utc_now",
+        lambda: reported_at,
+    )
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
+        await register_test_device(client, agent_token=agent_token)
+        first_context = await link_device_to_company(
+            client,
+            device_id="device-1",
+            agent_token=agent_token,
+            company_name="Empresa A",
+        )
+        second_context = await link_device_to_company(
+            client,
+            device_id="device-1",
+            agent_token=agent_token,
+            company_name="Empresa B",
+        )
+
+        report_response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "occurred_at": reported_at.isoformat(),
+                "device_id": "device-1",
+                **second_context.event_context(),
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_host": "empresa-b.local",
+                "destination_ip": "10.0.0.20",
+                "destination_port": 443,
+            },
+        )
+        assert report_response.status_code == 201
+
+        first_company_window = await client.get(
+            "/api/v1/audit/incident-window",
+            headers=auditor_session_headers(first_context.auditor_session_id),
+            params={
+                "from": "2026-07-27T14:00:00+00:00",
+                "to": "2026-07-27T14:15:00+00:00",
+            },
+        )
+        second_company_window = await client.get(
+            "/api/v1/audit/incident-window",
+            headers=auditor_session_headers(second_context.auditor_session_id),
+            params={
+                "from": "2026-07-27T14:00:00+00:00",
+                "to": "2026-07-27T14:15:00+00:00",
+            },
+        )
+
+    assert first_company_window.status_code == 200
+    first_body = first_company_window.json()
+    assert first_body["network_events"] == []
+    assert first_body["devices_seen_after_window"] == []
+    assert first_body["devices_without_report"][0]["device_id"] == "device-1"
+    assert first_body["devices_without_report"][0]["last_seen_at"] is None
+
+    assert second_company_window.status_code == 200
+    second_body = second_company_window.json()
+    assert second_body["devices_without_report"] == []
+    assert second_body["devices_seen_after_window"][0]["device_id"] == "device-1"
+    assert second_body["devices_seen_after_window"][0]["last_seen_at"] == (
+        "2026-07-27T15:00:00Z"
+    )
+
+
+@pytest.mark.anyio
 async def test_network_event_rejects_company_link_from_another_company() -> None:
     transport = httpx.ASGITransport(app=create_test_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
