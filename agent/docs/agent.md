@@ -30,6 +30,7 @@ AGENT_SCAN_INTERVAL_SECONDS=15
 AGENT_NETWORK_EVENT_DEDUP_SECONDS=300
 AGENT_REQUEST_TIMEOUT_SECONDS=10
 AGENT_REQUEST_RETRY_BACKOFF_SECONDS=30
+AGENT_STATE_FILE=
 AGENT_QUEUE_FILE=
 AGENT_SERVICE_MAP_FILE=
 AGENT_REVERSE_DNS_ENABLED=true
@@ -38,7 +39,7 @@ AGENT_ALLOW_INSECURE_TRANSPORT=false
 
 `AGENT_DEVICE_ID` puede quedar vacio. En ese caso el agente genera un identificador estable a partir de datos tecnicos del equipo.
 
-`AGENT_COMPANY_ID` y `AGENT_COMPANY_DEVICE_LINK_ID` definen la empresa activa para captura. El backend rechaza eventos de red y ciclo de vida sin estos campos o con un vinculo que no este `ACTIVE`.
+`AGENT_COMPANY_ID` y `AGENT_COMPANY_DEVICE_LINK_ID` quedan como fallback tecnico para laboratorios o servicios legacy. El flujo principal usa `AGENT_STATE_FILE`, donde el CLI guarda la empresa activa y si el registro de red esta encendido.
 
 `AGENT_TOKEN` es obligatorio para reportar al backend. Se obtiene desde el endpoint de provision del backend y debe corresponder al `device_id` del equipo.
 
@@ -50,6 +51,50 @@ AGENT_ALLOW_INSECURE_TRANSPORT=false
 /etc/the-all-seeing-eye/agent.env
 C:\ProgramData\TheAllSeeingEye\agent.env
 ```
+
+## Estado Local Multiempresa
+
+### Que Es
+
+`AGENT_STATE_FILE` es un archivo JSON auditable por el operador local. Guarda el `device_id`, la empresa activa, los vinculos conocidos y si el registro de red esta encendido.
+
+Ruta por defecto:
+
+```text
+~/.local/state/the-all-seeing-eye/agent-state.json
+```
+
+Ejemplo:
+
+```json
+{
+  "device_id": "device-1",
+  "recording_enabled": true,
+  "active_company_id": "company-1",
+  "active_company_device_link_id": "link-1",
+  "linked_companies": [
+    {
+      "company_id": "company-1",
+      "company_device_link_id": "link-1",
+      "company_name": "Acme",
+      "status": "ACTIVE",
+      "linked_at": "2026-07-29T10:00:00Z",
+      "revoked_at": null
+    }
+  ]
+}
+```
+
+### Como Funciona
+
+- `companies` sincroniza los vinculos aceptados por el backend y actualiza el estado local.
+- `use-company` selecciona una empresa activa y registra `AGENT_CONFIG_CHANGED`.
+- `start-recording` enciende la captura de eventos de red.
+- `stop-recording` envia `AGENT_STOPPING` y `AGENT_STOPPED` antes de apagar la captura de red.
+- `unlink` registra `AGENT_CONFIG_CHANGED`, solicita revocar el vinculo y elimina la asociacion local.
+- El runner lee este estado antes de enviar eventos; si no existe estado local, usa `AGENT_COMPANY_ID` y `AGENT_COMPANY_DEVICE_LINK_ID` como fallback.
+
+Si `recording_enabled=false`, el agente sigue reportando ciclo de vida cuando tiene empresa activa, pero no envia eventos de red.
 
 ## Cola Local Y Reintentos
 
@@ -80,9 +125,11 @@ Rutas recomendadas para servicio:
 C:\ProgramData\TheAllSeeingEye\agent-queue.jsonl
 ```
 
-El agente usa esta cola para registro del dispositivo, eventos de ciclo de vida y eventos de red.
+El agente usa esta cola para registro del dispositivo, solicitud de vinculacion, desvinculacion, eventos de ciclo de vida y eventos de red.
 
-Si existe cola pendiente y no se puede vaciar por backoff o fallo temporal, el agente no envia el request actual por delante. Lo agrega detras de los pendientes para conservar el orden, por ejemplo registro de dispositivo antes de `AGENT_STARTED`.
+Si existe cola pendiente y no se puede vaciar por backoff o fallo temporal, el agente no envia el request actual por delante. Lo agrega detras de los pendientes para conservar el orden, por ejemplo `AGENT_CONFIG_CHANGED` antes de revocar un vinculo.
+
+Cada evento de auditoria entra a la cola con el `company_id` y `company_device_link_id` que estaban activos en el momento de captura. Si luego el operador cambia de empresa activa, los eventos viejos conservan su empresa original.
 
 Si el archivo JSONL queda parcialmente corrupto tras un corte, el agente ignora las lineas invalidas, conserva los registros validos y reescribe la cola limpia.
 
@@ -101,7 +148,7 @@ El agente vuelve a recolectar identidad tecnica antes de cada heartbeat y cada s
 ## Ejecucion
 
 ```bash
-.venv/bin/python -m agent.app.cli --backend-url http://127.0.0.1:8000 --once
+.venv/bin/python -m agent.app.cli --backend-url http://127.0.0.1:8000 run-once
 ```
 
 Ejecutar con token:
@@ -110,7 +157,7 @@ Ejecutar con token:
 AGENT_TOKEN=token-generado .venv/bin/python -m agent.app.cli \
   --backend-url http://127.0.0.1:8000 \
   --device-id device-001 \
-  --once
+  run-once
 ```
 
 Comprobar identidad detectada:
@@ -122,7 +169,7 @@ Comprobar identidad detectada:
 Ejecutar en modo continuo:
 
 ```bash
-.venv/bin/python -m agent.app.cli --backend-url http://127.0.0.1:8000
+.venv/bin/python -m agent.app.cli --backend-url http://127.0.0.1:8000 run
 ```
 
 Ejecutar usando archivo de configuracion:
@@ -130,6 +177,20 @@ Ejecutar usando archivo de configuracion:
 ```bash
 .venv/bin/python -m agent.app.cli --env-file /etc/the-all-seeing-eye/agent.env
 ```
+
+Comandos operativos:
+
+```bash
+.venv/bin/python -m agent.app.cli status
+.venv/bin/python -m agent.app.cli companies
+.venv/bin/python -m agent.app.cli link --code CODIGO
+.venv/bin/python -m agent.app.cli use-company --company company-1
+.venv/bin/python -m agent.app.cli start-recording
+.venv/bin/python -m agent.app.cli stop-recording
+.venv/bin/python -m agent.app.cli unlink --company company-1
+```
+
+`--once` sigue disponible como alias legacy de `run-once`.
 
 ## Servicio Linux Con systemd
 

@@ -3,7 +3,7 @@ from dataclasses import asdict
 from ipaddress import ip_address
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from agent.app.config import AGENT_VERSION
@@ -63,6 +63,21 @@ def build_lifecycle_event_payload(
     }
 
 
+def build_device_enrollment_payload(
+    identity: DeviceIdentity,
+    enrollment_code: str,
+) -> dict[str, Any]:
+    return {
+        "device_id": identity.device_id,
+        "enrollment_code": enrollment_code,
+        "device_fingerprint_snapshot": _device_fingerprint_snapshot(identity),
+    }
+
+
+def build_revoke_device_link_payload(device_id: str) -> dict[str, str]:
+    return {"device_id": device_id}
+
+
 class AuditApiClient:
     def __init__(
         self,
@@ -110,6 +125,57 @@ class AuditApiClient:
     def send_network_event(self, payload: dict[str, object]) -> dict[str, Any]:
         return self.post_json("/api/v1/audit/network-events", payload)
 
+    def request_device_enrollment(
+        self,
+        identity: DeviceIdentity,
+        enrollment_code: str,
+    ) -> dict[str, Any]:
+        return self.post_json(
+            "/api/v1/companies/enrollment-requests",
+            build_device_enrollment_payload(identity, enrollment_code),
+        )
+
+    def list_device_links(self, device_id: str) -> list[dict[str, Any]]:
+        response = self.get_json(
+            "/api/v1/companies/device-links",
+            params={"device_id": device_id},
+        )
+        if not isinstance(response, list):
+            raise AgentTransportError("Respuesta inesperada del backend para device-links")
+        return [item for item in response if isinstance(item, dict)]
+
+    def revoke_device_link(
+        self,
+        *,
+        device_id: str,
+        company_device_link_id: str,
+    ) -> dict[str, Any]:
+        return self.post_json(
+            f"/api/v1/companies/device-links/{company_device_link_id}/revoke",
+            build_revoke_device_link_payload(device_id),
+        )
+
+    def get_json(
+        self,
+        path: str,
+        *,
+        params: dict[str, str] | None = None,
+    ) -> Any:
+        query = f"?{urlencode(params)}" if params else ""
+        request = Request(
+            url=f"{self._backend_url}{path}{query}",
+            headers={
+                "User-Agent": f"the-all-seeing-eye-agent/{AGENT_VERSION}",
+                self._agent_token_header: self._agent_token,
+            },
+            method="GET",
+        )
+
+        raw_response = self._open(request, path)
+        if not raw_response:
+            return {}
+        return json.loads(raw_response.decode())
+
     def post_json(self, path: str, payload: dict[str, Any] | dict[str, object]) -> dict[str, Any]:
         body = json.dumps(payload).encode()
         request = Request(
@@ -123,9 +189,22 @@ class AuditApiClient:
             method="POST",
         )
 
+        raw_response = self._open(request, path)
+        if not raw_response:
+            return {}
+
+        decoded = json.loads(raw_response.decode())
+        if not isinstance(decoded, dict):
+            raise AgentTransportError(f"Respuesta inesperada del backend para {path}")
+        return decoded
+
+    def _open(self, request: Request, path: str) -> bytes:
         try:
             with urlopen(request, timeout=self._timeout_seconds) as response:
                 raw_response = response.read()
+                if not isinstance(raw_response, bytes):
+                    raise AgentTransportError(f"Respuesta inesperada del backend para {path}")
+                return raw_response
         except HTTPError as exc:
             error_body = exc.read().decode(errors="replace")
             raise AgentTransportError(
@@ -135,14 +214,6 @@ class AuditApiClient:
             ) from exc
         except URLError as exc:
             raise AgentTransportError(f"No se pudo conectar con el backend: {exc.reason}") from exc
-
-        if not raw_response:
-            return {}
-
-        decoded = json.loads(raw_response.decode())
-        if not isinstance(decoded, dict):
-            raise AgentTransportError(f"Respuesta inesperada del backend para {path}")
-        return decoded
 
 
 def _is_retryable_http_status(status_code: int) -> bool:
@@ -177,3 +248,14 @@ def _is_loopback_host(hostname: str) -> bool:
         return ip_address(hostname).is_loopback
     except ValueError:
         return False
+
+
+def _device_fingerprint_snapshot(identity: DeviceIdentity) -> dict[str, str]:
+    return {
+        "hostname": identity.hostname,
+        "os_name": identity.os_name,
+        "agent_version": identity.agent_version,
+        "primary_local_ip": identity.primary_local_ip or "",
+        "primary_interface_name": identity.primary_interface_name or "",
+        "primary_mac_address": identity.primary_mac_address or "",
+    }

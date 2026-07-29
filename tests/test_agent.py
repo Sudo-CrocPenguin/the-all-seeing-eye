@@ -1,7 +1,8 @@
+import json
 import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 from agent.app import cli as agent_cli
 from agent.app.config import AgentSettings
@@ -16,6 +17,7 @@ from agent.app.local_queue import LocalAgentRequestQueue, QueuedAuditApiClient, 
 from agent.app.network_collector import NetworkConnectionCollector, ObservedNetworkConnection
 from agent.app.runner import AgentConfigurationError, AgentRunner
 from agent.app.service_map import ServiceMap, ServiceMapEntry
+from agent.app.state import AgentState, AgentStateError, JsonAgentStateStore, LinkedCompanyState
 from agent.app.transport import AgentTransportError, AuditApiClient, InsecureBackendUrlError
 from agent.app.windows_service import (
     WINDOWS_SERVICE_DESCRIPTION,
@@ -35,6 +37,7 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     monkeypatch.setenv("AGENT_HEARTBEAT_INTERVAL_SECONDS", "30")
     monkeypatch.setenv("AGENT_SCAN_INTERVAL_SECONDS", "5")
     monkeypatch.setenv("AGENT_REQUEST_RETRY_BACKOFF_SECONDS", "7")
+    monkeypatch.setenv("AGENT_STATE_FILE", "/tmp/the-all-seeing-eye-agent-state.json")
     monkeypatch.setenv("AGENT_QUEUE_FILE", "/tmp/the-all-seeing-eye-agent-queue.jsonl")
     monkeypatch.setenv("AGENT_SERVICE_MAP_FILE", "/tmp/the-all-seeing-eye-service-map.json")
     monkeypatch.setenv("AGENT_REVERSE_DNS_ENABLED", "false")
@@ -51,6 +54,7 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     assert settings.heartbeat_interval_seconds == 30
     assert settings.scan_interval_seconds == 5
     assert settings.request_retry_backoff_seconds == 7
+    assert str(settings.state_file) == "/tmp/the-all-seeing-eye-agent-state.json"
     assert str(settings.queue_file) == "/tmp/the-all-seeing-eye-agent-queue.jsonl"
     assert str(settings.service_map_file) == "/tmp/the-all-seeing-eye-service-map.json"
     assert not settings.reverse_dns_enabled
@@ -116,6 +120,294 @@ def test_cli_preserves_service_map_file_from_environment(
     assert captured["run_once"] is True
 
 
+def test_cli_status_works_without_backend(
+    tmp_path: Any,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    monkeypatch.delenv("AGENT_TOKEN", raising=False)
+    monkeypatch.setenv("AGENT_COMPANY_ID", "")
+    monkeypatch.setenv("AGENT_COMPANY_DEVICE_LINK_ID", "")
+    monkeypatch.setattr(
+        agent_cli,
+        "DeviceIdentityCollector",
+        lambda _settings: FakeIdentityCollector(identity),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent",
+            "--state-file",
+            str(tmp_path / "agent-state.json"),
+            "--queue-file",
+            str(tmp_path / "agent-queue.jsonl"),
+            "status",
+        ],
+    )
+
+    agent_cli.main()
+
+    output = capsys.readouterr().out
+    assert "Device: DEV-LAPTOP-001" in output
+    assert "Recording: OFF" in output
+    assert "Queue: 0 pending events" in output
+    assert "Backend: not configured" in output
+
+
+def test_cli_companies_syncs_local_state(
+    tmp_path: Any,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    state_file = tmp_path / "agent-state.json"
+    fake_client = FakeCliApiClient(
+        links=[
+            {
+                "company_id": "company-1",
+                "company_device_link_id": "link-1",
+                "company_name": "Acme",
+                "device_id": "device-1",
+                "linked_at": "2026-07-29T10:00:00Z",
+                "status": "ACTIVE",
+            },
+        ],
+    )
+    monkeypatch.setenv("AGENT_TOKEN", "agent-token")
+    monkeypatch.setattr(
+        agent_cli,
+        "DeviceIdentityCollector",
+        lambda _settings: FakeIdentityCollector(identity),
+    )
+    monkeypatch.setattr(agent_cli, "_build_agent_api_client", lambda _settings: fake_client)
+    monkeypatch.setattr(sys, "argv", ["agent", "--state-file", str(state_file), "companies"])
+
+    agent_cli.main()
+
+    state = JsonAgentStateStore(state_file).load()
+    output = capsys.readouterr().out
+    assert state.linked_companies[0].company_name == "Acme"
+    assert "Acme (company-1) - ACTIVE" in output
+
+
+def test_cli_use_company_selects_active_company_and_reports_change(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    state_file = tmp_path / "agent-state.json"
+    JsonAgentStateStore(state_file).save(
+        AgentState(device_id="device-1").upsert_link(
+            LinkedCompanyState(
+                company_id="company-1",
+                company_device_link_id="link-1",
+                company_name="Acme",
+            ),
+        ),
+    )
+    fake_client = FakeCliApiClient()
+    monkeypatch.setenv("AGENT_TOKEN", "agent-token")
+    monkeypatch.setattr(
+        agent_cli,
+        "DeviceIdentityCollector",
+        lambda _settings: FakeIdentityCollector(identity),
+    )
+    monkeypatch.setattr(agent_cli, "_build_agent_api_client", lambda _settings: fake_client)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent", "--state-file", str(state_file), "use-company", "--company", "company-1"],
+    )
+
+    agent_cli.main()
+
+    state = JsonAgentStateStore(state_file).load()
+    assert state.active_company_id == "company-1"
+    assert fake_client.lifecycle_events == [
+        ("AGENT_CONFIG_CHANGED", "company-1", "active company changed"),
+    ]
+
+
+def test_cli_start_recording_enables_state_and_reports_change(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    state_file = tmp_path / "agent-state.json"
+    JsonAgentStateStore(state_file).save(
+        AgentState(
+            device_id="device-1",
+            recording_enabled=False,
+            active_company_id="company-1",
+            active_company_device_link_id="link-1",
+            linked_companies=(
+                LinkedCompanyState(
+                    company_id="company-1",
+                    company_device_link_id="link-1",
+                    company_name="Acme",
+                ),
+            ),
+        ),
+    )
+    fake_client = FakeCliApiClient()
+    monkeypatch.setenv("AGENT_TOKEN", "agent-token")
+    monkeypatch.setattr(
+        agent_cli,
+        "DeviceIdentityCollector",
+        lambda _settings: FakeIdentityCollector(identity),
+    )
+    monkeypatch.setattr(agent_cli, "_build_agent_api_client", lambda _settings: fake_client)
+    monkeypatch.setattr(sys, "argv", ["agent", "--state-file", str(state_file), "start-recording"])
+
+    agent_cli.main()
+
+    state = JsonAgentStateStore(state_file).load()
+    assert state.recording_enabled
+    assert fake_client.lifecycle_events == [
+        ("AGENT_CONFIG_CHANGED", "company-1", "recording enabled by local user"),
+    ]
+
+
+def test_cli_stop_recording_sends_lifecycle_before_disabling(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    state_file = tmp_path / "agent-state.json"
+    JsonAgentStateStore(state_file).save(
+        AgentState(
+            device_id="device-1",
+            recording_enabled=True,
+            active_company_id="company-1",
+            active_company_device_link_id="link-1",
+            linked_companies=(
+                LinkedCompanyState(
+                    company_id="company-1",
+                    company_device_link_id="link-1",
+                    company_name="Acme",
+                ),
+            ),
+        ),
+    )
+    fake_client = FakeCliApiClient()
+    monkeypatch.setenv("AGENT_TOKEN", "agent-token")
+    monkeypatch.setattr(
+        agent_cli,
+        "DeviceIdentityCollector",
+        lambda _settings: FakeIdentityCollector(identity),
+    )
+    monkeypatch.setattr(agent_cli, "_build_agent_api_client", lambda _settings: fake_client)
+    monkeypatch.setattr(sys, "argv", ["agent", "--state-file", str(state_file), "stop-recording"])
+
+    agent_cli.main()
+
+    state = JsonAgentStateStore(state_file).load()
+    assert not state.recording_enabled
+    assert [event[0] for event in fake_client.lifecycle_events] == [
+        "AGENT_STOPPING",
+        "AGENT_STOPPED",
+    ]
+
+
+def test_cli_unlink_offline_removes_local_link_and_queues_request(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    state_file = tmp_path / "agent-state.json"
+    queue_file = tmp_path / "agent-queue.jsonl"
+    JsonAgentStateStore(state_file).save(
+        AgentState(
+            device_id="device-1",
+            recording_enabled=True,
+            active_company_id="company-1",
+            active_company_device_link_id="link-1",
+            linked_companies=(
+                LinkedCompanyState(
+                    company_id="company-1",
+                    company_device_link_id="link-1",
+                    company_name="Acme",
+                ),
+            ),
+        ),
+    )
+    queued_client = QueuedAuditApiClient(
+        FailingPostJsonClient(),
+        LocalAgentRequestQueue(queue_file),
+        retry_backoff_seconds=30,
+    )
+    monkeypatch.setenv("AGENT_TOKEN", "agent-token")
+    monkeypatch.setattr(
+        agent_cli,
+        "DeviceIdentityCollector",
+        lambda _settings: FakeIdentityCollector(identity),
+    )
+    monkeypatch.setattr(agent_cli, "_build_agent_api_client", lambda _settings: queued_client)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent",
+            "--state-file",
+            str(state_file),
+            "--queue-file",
+            str(queue_file),
+            "unlink",
+            "--company",
+            "company-1",
+        ],
+    )
+
+    agent_cli.main()
+
+    state = JsonAgentStateStore(state_file).load()
+    queued_requests = LocalAgentRequestQueue(queue_file).read_all()
+    assert state.linked_companies == ()
+    assert state.active_company_id is None
+    assert [request.path for request in queued_requests] == [
+        "/api/v1/audit/lifecycle-events",
+        "/api/v1/companies/device-links/link-1/revoke",
+    ]
+
+
 def test_environment_variables_override_env_file(tmp_path: Any, monkeypatch: Any) -> None:
     monkeypatch.setenv("AGENT_BACKEND_URL", "http://env.local:8000")
     env_file = tmp_path / "agent.env"
@@ -124,6 +416,51 @@ def test_environment_variables_override_env_file(tmp_path: Any, monkeypatch: Any
     settings = AgentSettings.from_environment(env_file)
 
     assert settings.backend_url == "http://env.local:8000"
+
+
+def test_agent_state_store_loads_empty_state_when_file_is_missing(tmp_path: Any) -> None:
+    state = JsonAgentStateStore(tmp_path / "agent-state.json").load()
+
+    assert state == AgentState()
+
+
+def test_agent_state_store_persists_active_company(tmp_path: Any) -> None:
+    state_file = tmp_path / "state" / "agent-state.json"
+    store = JsonAgentStateStore(state_file)
+    state = AgentState(device_id="device-1", recording_enabled=True).upsert_link(
+        LinkedCompanyState(
+            company_id="company-1",
+            company_device_link_id="link-1",
+            company_name="Acme",
+            linked_at="2026-07-29T10:00:00Z",
+        ),
+    )
+
+    saved_state = store.save(state.select_company("company-1"))
+
+    loaded_state = store.load()
+    assert loaded_state == saved_state
+    assert loaded_state.active_company is not None
+    assert loaded_state.active_company.company_name == "Acme"
+
+
+def test_agent_state_rejects_unknown_active_company() -> None:
+    state = AgentState().upsert_link(
+        LinkedCompanyState(
+            company_id="company-1",
+            company_device_link_id="link-1",
+            company_name="Acme",
+            status="REVOKED",
+            revoked_at="2026-07-29T10:00:00Z",
+        ),
+    )
+
+    try:
+        state.select_company("company-1")
+    except AgentStateError as exc:
+        assert "no esta vinculada" in str(exc)
+    else:
+        raise AssertionError("No debe seleccionar una empresa revocada")
 
 
 def test_parse_environment_lines_rejects_invalid_variable() -> None:
@@ -292,6 +629,105 @@ def test_runner_once_reports_lifecycle_and_network_event() -> None:
     assert api_client.network_events[0]["destination_ip"] == "93.184.216.34"
     assert api_client.network_events[0]["company_id"] == "company-1"
     assert api_client.network_events[0]["company_device_link_id"] == "link-1"
+
+
+def test_runner_prefers_active_company_from_local_state() -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    connection = ObservedNetworkConnection(
+        occurred_at=datetime(2026, 7, 27, 14, 0, tzinfo=UTC),
+        protocol="TCP",
+        local_ip="192.168.1.10",
+        local_port=51515,
+        destination_ip="93.184.216.34",
+        destination_port=443,
+        status="ESTABLISHED",
+        network_interface="eth0",
+        mac_address="00:11:22:33:44:55",
+    )
+    state = AgentState(
+        device_id="device-1",
+        recording_enabled=True,
+        active_company_id="company-state",
+        active_company_device_link_id="link-state",
+        linked_companies=(
+            LinkedCompanyState(
+                company_id="company-state",
+                company_device_link_id="link-state",
+                company_name="Empresa Estado",
+            ),
+        ),
+    )
+    api_client = FakeAuditApiClient()
+    runner = AgentRunner(
+        AgentSettings(company_id="company-env", company_device_link_id="link-env"),
+        identity_collector=FakeIdentityCollector(identity),
+        network_collector=FakeNetworkCollector([connection]),
+        api_client=api_client,
+        state_store=FakeAgentStateStore(state),
+    )
+
+    runner.run_once()
+
+    assert api_client.network_events[0]["company_id"] == "company-state"
+    assert api_client.network_events[0]["company_device_link_id"] == "link-state"
+
+
+def test_runner_skips_network_events_when_recording_is_disabled() -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    connection = ObservedNetworkConnection(
+        occurred_at=datetime(2026, 7, 27, 14, 0, tzinfo=UTC),
+        protocol="TCP",
+        local_ip="192.168.1.10",
+        local_port=51515,
+        destination_ip="93.184.216.34",
+        destination_port=443,
+        status="ESTABLISHED",
+        network_interface="eth0",
+        mac_address="00:11:22:33:44:55",
+    )
+    state = AgentState(
+        device_id="device-1",
+        recording_enabled=False,
+        active_company_id="company-1",
+        active_company_device_link_id="link-1",
+        linked_companies=(
+            LinkedCompanyState(
+                company_id="company-1",
+                company_device_link_id="link-1",
+                company_name="Acme",
+            ),
+        ),
+    )
+    api_client = FakeAuditApiClient()
+    runner = AgentRunner(
+        AgentSettings(),
+        identity_collector=FakeIdentityCollector(identity),
+        network_collector=FakeNetworkCollector([connection]),
+        api_client=api_client,
+        state_store=FakeAgentStateStore(state),
+    )
+
+    runner.run_once()
+
+    assert api_client.lifecycle_events == [
+        "AGENT_STARTED",
+        "AGENT_HEARTBEAT",
+        "AGENT_STOPPING",
+        "AGENT_STOPPED",
+    ]
+    assert api_client.network_events == []
 
 
 def test_runner_forever_uses_scan_interval_independently_from_heartbeat() -> None:
@@ -479,6 +915,88 @@ def test_api_client_sends_agent_token_header(monkeypatch: Any) -> None:
     assert captured_headers["X-agent-token"] == "agent-token"
 
 
+def test_api_client_requests_device_enrollment_with_fingerprint(monkeypatch: Any) -> None:
+    captured_request: dict[str, object] = {}
+
+    class FakeResponse:
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"status":"PENDING"}'
+
+    def fake_urlopen(request: Any, timeout: int) -> FakeResponse:
+        captured_request["url"] = request.full_url
+        captured_request["payload"] = request.data.decode()
+        captured_request["headers"] = dict(request.header_items())
+        assert timeout == 10
+        return FakeResponse()
+
+    monkeypatch.setattr("agent.app.transport.urlopen", fake_urlopen)
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(
+            NetworkInterface(
+                name="eth0",
+                local_ip="192.168.1.10",
+                mac_address="00:11:22:33:44:55",
+                is_up=True,
+            ),
+        ),
+    )
+    client = AuditApiClient("https://backend.local:8000", agent_token="agent-token")
+
+    response = client.request_device_enrollment(identity, "ABC123")
+
+    payload = json.loads(str(captured_request["payload"]))
+    assert response == {"status": "PENDING"}
+    assert captured_request["url"] == "https://backend.local:8000/api/v1/companies/enrollment-requests"
+    assert payload["device_id"] == "device-1"
+    assert payload["enrollment_code"] == "ABC123"
+    assert payload["device_fingerprint_snapshot"]["hostname"] == "DEV-LAPTOP-001"
+    assert payload["device_fingerprint_snapshot"]["primary_mac_address"] == "00:11:22:33:44:55"
+
+
+def test_api_client_lists_device_links(monkeypatch: Any) -> None:
+    captured_request: dict[str, object] = {}
+
+    class FakeResponse:
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'[{"company_id":"company-1","company_name":"Acme"}]'
+
+    def fake_urlopen(request: Any, timeout: int) -> FakeResponse:
+        captured_request["url"] = request.full_url
+        captured_request["method"] = request.get_method()
+        captured_request["headers"] = dict(request.header_items())
+        assert timeout == 10
+        return FakeResponse()
+
+    monkeypatch.setattr("agent.app.transport.urlopen", fake_urlopen)
+    client = AuditApiClient("https://backend.local:8000", agent_token="agent-token")
+
+    links = client.list_device_links("device-1")
+
+    assert captured_request["method"] == "GET"
+    assert captured_request["url"] == (
+        "https://backend.local:8000/api/v1/companies/device-links?device_id=device-1"
+    )
+    headers = cast(dict[str, str], captured_request["headers"])
+    assert headers["X-agent-token"] == "agent-token"
+    assert links == [{"company_id": "company-1", "company_name": "Acme"}]
+
+
 def test_api_client_rejects_non_local_http_backend_by_default() -> None:
     try:
         AuditApiClient("http://backend.local:8000", agent_token="agent-token")
@@ -647,6 +1165,60 @@ def test_queued_client_discards_legacy_audit_events_without_company_context(
         "/api/v1/audit/network-events",
     ]
     assert queue.read_all() == []
+
+
+def test_queued_client_queues_revoke_link_when_backend_fails(tmp_path: Any) -> None:
+    queue_file = tmp_path / "agent-queue.jsonl"
+    client = QueuedAuditApiClient(
+        FailingPostJsonClient(),
+        LocalAgentRequestQueue(queue_file),
+        retry_backoff_seconds=30,
+    )
+
+    response = client.revoke_device_link(
+        device_id="device-1",
+        company_device_link_id="link-1",
+    )
+
+    assert response == {}
+    queued_requests = LocalAgentRequestQueue(queue_file).read_all()
+    assert len(queued_requests) == 1
+    assert queued_requests[0].path == "/api/v1/companies/device-links/link-1/revoke"
+    assert queued_requests[0].payload == {"device_id": "device-1"}
+
+
+def test_queued_client_preserves_company_context_per_offline_event(tmp_path: Any) -> None:
+    queue_file = tmp_path / "agent-queue.jsonl"
+    client = QueuedAuditApiClient(
+        FailingPostJsonClient(),
+        LocalAgentRequestQueue(queue_file),
+        retry_backoff_seconds=30,
+    )
+
+    client.send_network_event(
+        {
+            "device_id": "device-1",
+            "company_id": "company-a",
+            "company_device_link_id": "link-a",
+        },
+    )
+    client.send_network_event(
+        {
+            "device_id": "device-1",
+            "company_id": "company-b",
+            "company_device_link_id": "link-b",
+        },
+    )
+
+    queued_requests = LocalAgentRequestQueue(queue_file).read_all()
+    assert [request.payload["company_id"] for request in queued_requests] == [
+        "company-a",
+        "company-b",
+    ]
+    assert [request.payload["company_device_link_id"] for request in queued_requests] == [
+        "link-a",
+        "link-b",
+    ]
 
 
 def test_queued_client_queues_current_request_when_pending_flush_is_blocked(
@@ -851,6 +1423,66 @@ class FakeAuditApiClient:
     def send_network_event(self, payload: dict[str, object]) -> dict[str, object]:
         self.network_events.append(payload)
         return {}
+
+
+class FakeAgentStateStore:
+    def __init__(self, state: AgentState) -> None:
+        self.state = state
+        self.saved_states: list[AgentState] = []
+
+    def load(self) -> AgentState:
+        return self.state
+
+    def save(self, state: AgentState) -> AgentState:
+        self.state = state
+        self.saved_states.append(state)
+        return state
+
+
+class FakeCliApiClient:
+    def __init__(self, links: list[dict[str, object]] | None = None) -> None:
+        self.links = links or []
+        self.registered_devices: list[str] = []
+        self.enrollment_codes: list[str] = []
+        self.lifecycle_events: list[tuple[str, str, str | None]] = []
+        self.revoked_links: list[tuple[str, str]] = []
+
+    def register_device(self, identity: DeviceIdentity) -> dict[str, object]:
+        self.registered_devices.append(identity.device_id)
+        return {}
+
+    def request_device_enrollment(
+        self,
+        _identity: DeviceIdentity,
+        enrollment_code: str,
+    ) -> dict[str, object]:
+        self.enrollment_codes.append(enrollment_code)
+        return {"company_id": "company-1", "status": "PENDING"}
+
+    def list_device_links(self, _device_id: str) -> list[dict[str, object]]:
+        return self.links
+
+    def revoke_device_link(
+        self,
+        *,
+        device_id: str,
+        company_device_link_id: str,
+    ) -> dict[str, object]:
+        self.revoked_links.append((device_id, company_device_link_id))
+        return {}
+
+    def send_lifecycle_event(
+        self,
+        _identity: DeviceIdentity,
+        event_type: str,
+        _occurred_at: str,
+        *,
+        company_id: str,
+        company_device_link_id: str,
+        reason: str | None = None,
+    ) -> dict[str, object]:
+        self.lifecycle_events.append((event_type, company_id, reason))
+        return {"company_device_link_id": company_device_link_id}
 
 
 class FailingPostJsonClient:

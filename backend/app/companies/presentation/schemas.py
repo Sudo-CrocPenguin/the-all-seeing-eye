@@ -9,6 +9,7 @@ from backend.app.companies.application.create_enrollment_code import (
     CreateEnrollmentCodeCommand,
 )
 from backend.app.companies.application.query_company_summary import CompanySummary
+from backend.app.companies.application.query_device_company_links import DeviceCompanyLink
 from backend.app.companies.application.request_auditor_access import (
     RequestAuditorAccessCommand,
     RequestedAuditorAccess,
@@ -19,6 +20,9 @@ from backend.app.companies.application.request_device_enrollment import (
 from backend.app.companies.application.review_enrollment_request import (
     ReviewedEnrollmentRequest,
     ReviewEnrollmentRequestCommand,
+)
+from backend.app.companies.application.revoke_device_company_link import (
+    RevokeDeviceCompanyLinkCommand,
 )
 from backend.app.companies.application.verify_auditor_access import VerifyAuditorAccessCommand
 from backend.app.companies.domain.entities import (
@@ -245,6 +249,61 @@ class CompanyDeviceLinkResponse(BaseModel):
             revoked_at=link.revoked_at,
             revoked_by_device=link.revoked_by_device,
             revoked_by_auditor_session_id=link.revoked_by_auditor_session_id,
+        )
+
+
+class DeviceCompanyLinkResponse(BaseModel):
+    company_device_link_id: str
+    company_id: str
+    company_name: str
+    device_id: str
+    linked_at: datetime
+    status: str
+    revoked_at: datetime | None
+    revoked_by_device: bool
+    revoked_by_auditor_session_id: str | None
+
+    @classmethod
+    def from_result(cls, link: DeviceCompanyLink) -> "DeviceCompanyLinkResponse":
+        return cls(
+            company_device_link_id=link.company_device_link_id,
+            company_id=link.company_id,
+            company_name=link.company_name,
+            device_id=link.device_id,
+            linked_at=link.linked_at,
+            status=link.status,
+            revoked_at=link.revoked_at,
+            revoked_by_device=link.revoked_by_device,
+            revoked_by_auditor_session_id=link.revoked_by_auditor_session_id,
+        )
+
+    @classmethod
+    def from_domain(
+        cls,
+        link: CompanyDeviceLink,
+        *,
+        company_name: str,
+    ) -> "DeviceCompanyLinkResponse":
+        return cls(
+            company_device_link_id=link.company_device_link_id,
+            company_id=link.company_id,
+            company_name=company_name,
+            device_id=link.device_id,
+            linked_at=link.linked_at,
+            status=link.status.value,
+            revoked_at=link.revoked_at,
+            revoked_by_device=link.revoked_by_device,
+            revoked_by_auditor_session_id=link.revoked_by_auditor_session_id,
+        )
+
+
+class RevokeDeviceCompanyLinkRequest(BaseModel):
+    device_id: str
+
+    def to_command(self, company_device_link_id: str) -> RevokeDeviceCompanyLinkCommand:
+        return RevokeDeviceCompanyLinkCommand(
+            device_id=self.device_id,
+            company_device_link_id=company_device_link_id,
         )
 
 

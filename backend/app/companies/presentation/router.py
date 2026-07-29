@@ -11,6 +11,10 @@ from backend.app.companies.application.query_company_summary import (
     QueryCompanySummaryCommand,
     QueryCompanySummaryUseCase,
 )
+from backend.app.companies.application.query_device_company_links import (
+    QueryDeviceCompanyLinksCommand,
+    QueryDeviceCompanyLinksUseCase,
+)
 from backend.app.companies.application.request_auditor_access import (
     RequestAuditorAccessUseCase,
 )
@@ -19,6 +23,9 @@ from backend.app.companies.application.request_device_enrollment import (
 )
 from backend.app.companies.application.review_enrollment_request import (
     ReviewEnrollmentRequestUseCase,
+)
+from backend.app.companies.application.revoke_device_company_link import (
+    RevokeDeviceCompanyLinkUseCase,
 )
 from backend.app.companies.application.verify_auditor_access import (
     VerifyAuditorAccessUseCase,
@@ -30,12 +37,14 @@ from backend.app.companies.presentation.schemas import (
     CompanySummaryResponse,
     CreateCompanyRequest,
     CreateEnrollmentCodeRequest,
+    DeviceCompanyLinkResponse,
     EnrollmentCodeResponse,
     EnrollmentRequestResponse,
     RequestAuditorAccessRequest,
     RequestDeviceEnrollmentRequest,
     ReviewedEnrollmentRequestResponse,
     ReviewEnrollmentRequestRequest,
+    RevokeDeviceCompanyLinkRequest,
     VerifyAuditorAccessRequest,
 )
 from backend.app.shared.container import AppContainer
@@ -64,6 +73,55 @@ async def create_company(
     use_case = CreateCompanyUseCase(container.company_repository)
     company = use_case.execute(payload.to_command())
     return CompanyResponse.from_domain(company)
+
+
+@router.get("/device-links", response_model=list[DeviceCompanyLinkResponse])
+async def list_device_links(
+    device_id: Annotated[str, Query(min_length=1)],
+    request: Request,
+    container: Annotated[AppContainer, Depends(get_container)],
+) -> list[DeviceCompanyLinkResponse]:
+    require_agent_token(
+        request,
+        request.app.state.container.settings,
+        container,
+        device_id=device_id,
+        require_registered_device=True,
+    )
+    use_case = QueryDeviceCompanyLinksUseCase(
+        container.company_device_link_repository,
+        container.company_repository,
+    )
+    return [
+        DeviceCompanyLinkResponse.from_result(link)
+        for link in use_case.execute(QueryDeviceCompanyLinksCommand(device_id=device_id))
+    ]
+
+
+@router.post(
+    "/device-links/{company_device_link_id}/revoke",
+    response_model=DeviceCompanyLinkResponse,
+)
+async def revoke_device_link(
+    company_device_link_id: str,
+    payload: RevokeDeviceCompanyLinkRequest,
+    request: Request,
+    container: Annotated[AppContainer, Depends(get_container)],
+) -> DeviceCompanyLinkResponse:
+    require_agent_token(
+        request,
+        request.app.state.container.settings,
+        container,
+        device_id=payload.device_id,
+        require_registered_device=True,
+    )
+    use_case = RevokeDeviceCompanyLinkUseCase(container.company_device_link_repository)
+    link = use_case.execute(payload.to_command(company_device_link_id))
+    company = container.company_repository.find_by_id(link.company_id)
+    return DeviceCompanyLinkResponse.from_domain(
+        link,
+        company_name=company.name if company is not None else link.company_id,
+    )
 
 
 @router.post(

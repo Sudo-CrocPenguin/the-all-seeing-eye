@@ -47,6 +47,7 @@ class AgentSettings:
     network_event_dedup_seconds: int = 300
     request_timeout_seconds: int = 10
     request_retry_backoff_seconds: int = 30
+    state_file: Path = Path.home() / ".local/state/the-all-seeing-eye/agent-state.json"
     queue_file: Path = Path.home() / ".local/state/the-all-seeing-eye/agent-queue.jsonl"
     service_map_file: Path | None = None
     reverse_dns_enabled: bool = True
@@ -73,6 +74,12 @@ class AgentSettings:
             network_event_dedup_seconds=_get_int("AGENT_NETWORK_EVENT_DEDUP_SECONDS", 300),
             request_timeout_seconds=_get_int("AGENT_REQUEST_TIMEOUT_SECONDS", 10),
             request_retry_backoff_seconds=_get_int("AGENT_REQUEST_RETRY_BACKOFF_SECONDS", 30),
+            state_file=Path(
+                getenv(
+                    "AGENT_STATE_FILE",
+                    str(Path.home() / ".local/state/the-all-seeing-eye/agent-state.json"),
+                ),
+            ),
             queue_file=Path(
                 getenv(
                     "AGENT_QUEUE_FILE",

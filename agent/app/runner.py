@@ -12,6 +12,7 @@ from agent.app.device_identity import DeviceIdentity, DeviceIdentityCollector
 from agent.app.local_queue import QueuedAuditApiClient
 from agent.app.network_collector import NetworkConnectionCollector, ObservedNetworkConnection
 from agent.app.service_map import ServiceMap
+from agent.app.state import AgentState, JsonAgentStateStore
 from agent.app.transport import AuditApiClient, InsecureBackendUrlError
 
 
@@ -32,6 +33,14 @@ class IdentityCollector(Protocol):
 
 class ConnectionCollector(Protocol):
     def collect(self, identity: DeviceIdentity) -> list[ObservedNetworkConnection]:
+        raise NotImplementedError
+
+
+class AgentStateStore(Protocol):
+    def load(self) -> AgentState:
+        raise NotImplementedError
+
+    def save(self, state: AgentState) -> AgentState:
         raise NotImplementedError
 
 
@@ -73,6 +82,7 @@ class AgentRunner:
         identity_collector: IdentityCollector | None = None,
         network_collector: ConnectionCollector | None = None,
         api_client: AgentApiClient | None = None,
+        state_store: AgentStateStore | None = None,
         stop_signal: StopSignal | None = None,
         monotonic_clock: Callable[[], float] | None = None,
     ) -> None:
@@ -83,6 +93,7 @@ class AgentRunner:
             reverse_dns_enabled=settings.reverse_dns_enabled,
         )
         self._api_client = api_client or self._build_api_client(settings)
+        self._state_store = state_store or JsonAgentStateStore(settings.state_file)
         self._stop_requested = stop_signal or Event()
         self._monotonic_clock = monotonic_clock or monotonic
         self._last_sent_network_events: dict[str, datetime] = {}
@@ -149,6 +160,7 @@ class AgentRunner:
 
     def _bootstrap(self) -> DeviceIdentity:
         identity = self._identity_collector.collect()
+        self._ensure_state_device(identity)
         self._api_client.register_device(identity)
         self._send_lifecycle(identity, "AGENT_STARTED")
         return identity
@@ -177,7 +189,7 @@ class AgentRunner:
         *,
         reason: str | None = None,
     ) -> None:
-        context = self._require_audit_company_context()
+        context = self._require_audit_company_context(identity)
         self._api_client.send_lifecycle_event(
             identity,
             event_type,
@@ -188,7 +200,11 @@ class AgentRunner:
         )
 
     def _collect_and_send_network_events(self, identity: DeviceIdentity) -> None:
-        context = self._require_audit_company_context()
+        state = self._load_state_for_identity(identity)
+        context = self._require_audit_company_context(identity, state=state)
+        if not self._recording_enabled(state, context):
+            return
+
         for connection in self._network_collector.collect(identity):
             if self._should_send_network_event(connection):
                 self._api_client.send_network_event(
@@ -200,15 +216,62 @@ class AgentRunner:
                 )
                 self._last_sent_network_events[connection.signature] = connection.occurred_at
 
-    def _require_audit_company_context(self) -> AuditCompanyContext:
-        if not self._settings.company_id or not self._settings.company_device_link_id:
-            raise AgentConfigurationError(
-                "AGENT_COMPANY_ID y AGENT_COMPANY_DEVICE_LINK_ID son obligatorios "
-                "para reportar eventos de auditoria",
+    def _require_audit_company_context(
+        self,
+        identity: DeviceIdentity,
+        *,
+        state: AgentState | None = None,
+    ) -> AuditCompanyContext:
+        resolved_state = state or self._load_state_for_identity(identity)
+        active_company = resolved_state.active_company
+        if active_company is not None and active_company.is_active:
+            return AuditCompanyContext(
+                company_id=active_company.company_id,
+                company_device_link_id=active_company.company_device_link_id,
             )
-        return AuditCompanyContext(
-            company_id=self._settings.company_id,
-            company_device_link_id=self._settings.company_device_link_id,
+        if self._settings.company_id and self._settings.company_device_link_id:
+            return AuditCompanyContext(
+                company_id=self._settings.company_id,
+                company_device_link_id=self._settings.company_device_link_id,
+            )
+
+        if resolved_state.active_company_id or resolved_state.linked_companies:
+            raise AgentConfigurationError(
+                "El estado local no tiene una empresa activa valida para reportar auditoria",
+            )
+
+        raise AgentConfigurationError(
+            "AGENT_COMPANY_ID y AGENT_COMPANY_DEVICE_LINK_ID son obligatorios "
+            "para reportar eventos de auditoria",
+        )
+
+    def _ensure_state_device(self, identity: DeviceIdentity) -> AgentState:
+        state = self._load_state()
+        if state.device_id is None:
+            return state
+        if state.device_id != identity.device_id:
+            raise AgentConfigurationError(
+                "El estado local pertenece a otro dispositivo; revise AGENT_STATE_FILE",
+            )
+        return state
+
+    def _load_state_for_identity(self, identity: DeviceIdentity) -> AgentState:
+        state = self._load_state()
+        if state.device_id is not None and state.device_id != identity.device_id:
+            raise AgentConfigurationError(
+                "El estado local pertenece a otro dispositivo; revise AGENT_STATE_FILE",
+            )
+        return state
+
+    def _load_state(self) -> AgentState:
+        return self._state_store.load()
+
+    def _recording_enabled(self, state: AgentState, context: AuditCompanyContext) -> bool:
+        if state.active_company is not None:
+            return state.recording_enabled
+        return (
+            self._settings.company_id == context.company_id
+            and self._settings.company_device_link_id == context.company_device_link_id
         )
 
     def _should_send_network_event(self, connection: ObservedNetworkConnection) -> bool:
