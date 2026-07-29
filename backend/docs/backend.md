@@ -108,6 +108,14 @@ PERSISTENCE_BACKEND=memory
 
 ```text
 GET  /health
+POST /api/v1/companies
+POST /api/v1/companies/{company_id}/auditor-access-requests
+POST /api/v1/companies/{company_id}/auditor-access-requests/{request_id}/verify
+POST /api/v1/companies/{company_id}/enrollment-codes
+POST /api/v1/companies/enrollment-requests
+GET  /api/v1/companies/{company_id}/enrollment-requests
+POST /api/v1/companies/{company_id}/enrollment-requests/{request_id}/review
+GET  /api/v1/companies/{company_id}/summary
 POST /api/v1/devices/agent-credentials
 POST /api/v1/devices
 GET  /api/v1/devices
@@ -176,6 +184,114 @@ GET /api/v1/audit/lifecycle-events
 ```
 
 Este token sirve para revisar historicos sin conceder permisos de provisionamiento de agentes.
+
+## Autenticacion Multiempresa Por Terminal
+
+### Que Es
+
+Es la base para operar varias empresas auditoras desde terminal. Cada empresa puede tener
+dispositivos vinculados, codigos temporales de vinculacion y sesiones temporales de
+auditor.
+
+La sesion de auditor no reemplaza al token historico `X-Auditor-Token` usado por las
+consultas iniciales existentes. Es una capa nueva para autorizar acciones de empresa como
+crear codigos de vinculacion, revisar solicitudes y consultar resumen de empresa.
+
+### Para Que Sirve
+
+Sirve para que una empresa controle que dispositivos reportan a su negocio y que
+dispositivos pueden actuar como auditores durante una ventana corta.
+
+En esta primera fase permite:
+
+- Crear una empresa auditora.
+- Solicitar acceso temporal de auditor desde un dispositivo registrado.
+- Verificar el codigo OTP/SMS y obtener una sesion de 12 horas.
+- Generar codigos temporales de vinculacion.
+- Solicitar vinculacion de un dispositivo a una empresa.
+- Aceptar o denegar solicitudes de vinculacion.
+- Ver un resumen operativo de dispositivos vinculados y solicitudes pendientes.
+
+### Como Funciona
+
+Crear empresa:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/companies \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Acme Auditoria","phone_number":"+573001112233"}'
+```
+
+Solicitar acceso auditor desde un dispositivo registrado:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/companies/<company_id>/auditor-access-requests \
+  -H "Content-Type: application/json" \
+  -H "X-Agent-Token: <token-del-dispositivo>" \
+  -d '{"device_id":"device-auditor"}'
+```
+
+En `APP_ENV=local`, la respuesta incluye `verification_code` para desarrollo. En entornos
+no locales, el campo no se expone y el canal esperado es SMS.
+
+Verificar codigo y crear sesion de auditor:
+
+```bash
+curl -X POST \
+  http://127.0.0.1:8000/api/v1/companies/<company_id>/auditor-access-requests/<request_id>/verify \
+  -H "Content-Type: application/json" \
+  -H "X-Agent-Token: <token-del-dispositivo>" \
+  -d '{"device_id":"device-auditor","verification_code":"123456"}'
+```
+
+La respuesta incluye `auditor_session_id`. Las acciones de empresa usan:
+
+```text
+X-Auditor-Session: <auditor_session_id>
+```
+
+Crear codigo de vinculacion:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/companies/<company_id>/enrollment-codes \
+  -H "Content-Type: application/json" \
+  -H "X-Auditor-Session: <auditor_session_id>" \
+  -d '{"ttl_seconds":3600,"max_uses":1}'
+```
+
+Solicitar vinculacion de otro dispositivo:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/companies/enrollment-requests \
+  -H "Content-Type: application/json" \
+  -H "X-Agent-Token: <token-del-dispositivo>" \
+  -d '{"device_id":"device-001","enrollment_code":"codigo"}'
+```
+
+Aceptar o denegar solicitud:
+
+```bash
+curl -X POST \
+  http://127.0.0.1:8000/api/v1/companies/<company_id>/enrollment-requests/<request_id>/review \
+  -H "Content-Type: application/json" \
+  -H "X-Auditor-Session: <auditor_session_id>" \
+  -d '{"decision":"ACCEPT"}'
+```
+
+Consultar resumen de empresa:
+
+```bash
+curl -H "X-Auditor-Session: <auditor_session_id>" \
+  http://127.0.0.1:8000/api/v1/companies/<company_id>/summary
+```
+
+### Limites De Esta Fase
+
+- El envio real de SMS todavia no esta integrado.
+- Los eventos de red y ciclo de vida aun no guardan `company_id`.
+- El dispositivo aun no tiene menu local para seleccionar empresa activa.
+- La desvinculacion libre con aviso a empresa queda para la siguiente fase.
+- La exportacion JSON de auditor por terminal queda para la siguiente fase.
 
 ### Historial Unificado Del Equipo
 

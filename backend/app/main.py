@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from backend.app.audit.application.heartbeat_scheduler import missed_heartbeat_scheduler_loop
 from backend.app.audit.presentation.router import router as audit_router
+from backend.app.companies.presentation.router import router as companies_router
 from backend.app.devices.presentation.router import router as devices_router
 from backend.app.health.router import router as health_router
 from backend.app.shared.config import Settings, get_settings
@@ -41,6 +42,7 @@ def create_app(
         return JSONResponse(status_code=422, content={"detail": str(exc)})
 
     app.include_router(health_router)
+    app.include_router(companies_router, prefix="/api/v1")
     app.include_router(devices_router, prefix="/api/v1")
     app.include_router(audit_router, prefix="/api/v1")
     return app

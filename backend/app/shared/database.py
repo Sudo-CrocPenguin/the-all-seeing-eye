@@ -32,6 +32,7 @@ def build_session_factory(settings: Settings) -> sessionmaker[Session]:
 
 def import_database_models() -> None:
     import_module("backend.app.audit.infrastructure.sqlalchemy_models")
+    import_module("backend.app.companies.infrastructure.sqlalchemy_models")
     import_module("backend.app.devices.infrastructure.sqlalchemy_models")
 
 
