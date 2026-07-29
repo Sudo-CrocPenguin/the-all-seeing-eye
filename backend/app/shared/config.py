@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     twilio_account_sid: str | None = None
     twilio_auth_token: str | None = None
     twilio_from_phone_number: str | None = None
+    otp_rate_limit_window_seconds: int = 600
+    otp_rate_limit_max_per_company: int = 5
+    otp_rate_limit_max_per_device: int = 3
+    otp_rate_limit_max_per_ip: int = 20
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

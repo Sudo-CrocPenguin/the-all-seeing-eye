@@ -1,11 +1,14 @@
+from datetime import datetime
 from typing import cast
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app.companies.domain.entities import (
     AuditorAccessRequest,
     AuditorAccessRequestStatus,
+    AuditorOtpEvent,
+    AuditorOtpEventType,
     AuditorSession,
     Company,
     CompanyDeviceLink,
@@ -17,6 +20,7 @@ from backend.app.companies.domain.entities import (
 )
 from backend.app.companies.infrastructure.sqlalchemy_models import (
     AuditorAccessRequestModel,
+    AuditorOtpEventModel,
     AuditorSessionModel,
     CompanyDeviceLinkModel,
     CompanyModel,
@@ -179,6 +183,33 @@ def _update_auditor_session_model(model: AuditorSessionModel, session: AuditorSe
     model.expires_at = session.expires_at
     model.scopes = list(session.scopes)
     model.revoked_at = session.revoked_at
+
+
+def _auditor_otp_event_to_domain(model: AuditorOtpEventModel) -> AuditorOtpEvent:
+    event_metadata = cast(dict[str, str], model.event_metadata or {})
+    return AuditorOtpEvent(
+        otp_event_id=model.otp_event_id,
+        company_id=model.company_id,
+        device_id=model.device_id,
+        client_ip=model.client_ip,
+        auditor_access_request_id=model.auditor_access_request_id,
+        event_type=AuditorOtpEventType(model.event_type),
+        occurred_at=model.occurred_at,
+        event_metadata=dict(event_metadata),
+    )
+
+
+def _update_auditor_otp_event_model(
+    model: AuditorOtpEventModel,
+    otp_event: AuditorOtpEvent,
+) -> None:
+    model.company_id = otp_event.company_id
+    model.device_id = otp_event.device_id
+    model.client_ip = otp_event.client_ip
+    model.auditor_access_request_id = otp_event.auditor_access_request_id
+    model.event_type = otp_event.event_type.value
+    model.occurred_at = otp_event.occurred_at
+    model.event_metadata = dict(otp_event.event_metadata)
 
 
 class SQLAlchemyCompanyRepository:
@@ -461,3 +492,48 @@ class SQLAlchemyAuditorSessionRepository:
             _auditor_session_to_domain(model)
             for model in self._session.scalars(statement).all()
         ]
+
+
+class SQLAlchemyAuditorOtpEventRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def save(self, otp_event: AuditorOtpEvent) -> AuditorOtpEvent:
+        model = self._session.get(AuditorOtpEventModel, otp_event.otp_event_id)
+        if model is None:
+            model = AuditorOtpEventModel(
+                otp_event_id=otp_event.otp_event_id,
+                company_id=otp_event.company_id,
+                device_id=otp_event.device_id,
+                client_ip=otp_event.client_ip,
+                auditor_access_request_id=otp_event.auditor_access_request_id,
+                event_type=otp_event.event_type.value,
+                occurred_at=otp_event.occurred_at,
+                event_metadata=dict(otp_event.event_metadata),
+            )
+            self._session.add(model)
+        else:
+            _update_auditor_otp_event_model(model, otp_event)
+        self._session.flush()
+        return _auditor_otp_event_to_domain(model)
+
+    def count_recent_events(
+        self,
+        *,
+        event_type: AuditorOtpEventType,
+        since: datetime,
+        company_id: str | None = None,
+        device_id: str | None = None,
+        client_ip: str | None = None,
+    ) -> int:
+        statement = select(func.count()).select_from(AuditorOtpEventModel).where(
+            AuditorOtpEventModel.event_type == event_type.value,
+            AuditorOtpEventModel.occurred_at >= since,
+        )
+        if company_id is not None:
+            statement = statement.where(AuditorOtpEventModel.company_id == company_id)
+        if device_id is not None:
+            statement = statement.where(AuditorOtpEventModel.device_id == device_id)
+        if client_ip is not None:
+            statement = statement.where(AuditorOtpEventModel.client_ip == client_ip)
+        return int(self._session.scalar(statement) or 0)

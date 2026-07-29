@@ -31,6 +31,13 @@ class AuditorAccessRequestStatus(StrEnum):
     DENIED = "DENIED"
 
 
+class AuditorOtpEventType(StrEnum):
+    REQUESTED = "REQUESTED"
+    FAILED = "FAILED"
+    BLOCKED = "BLOCKED"
+    VERIFIED = "VERIFIED"
+
+
 def _require_text(value: str, field_name: str) -> str:
     normalized = value.strip()
     if not normalized:
@@ -289,3 +296,27 @@ class AuditorSession:
     def is_active(self, now: datetime | None = None) -> bool:
         checked_at = ensure_aware(now or utc_now())
         return self.revoked_at is None and checked_at <= self.expires_at
+
+
+@dataclass(slots=True)
+class AuditorOtpEvent:
+    otp_event_id: str
+    company_id: str
+    device_id: str
+    event_type: AuditorOtpEventType
+    occurred_at: datetime
+    client_ip: str | None = None
+    auditor_access_request_id: str | None = None
+    event_metadata: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.otp_event_id = _require_text(self.otp_event_id, "otp_event_id")
+        self.company_id = _require_text(self.company_id, "company_id")
+        self.device_id = _require_text(self.device_id, "device_id")
+        self.event_type = AuditorOtpEventType(self.event_type)
+        self.occurred_at = ensure_aware(self.occurred_at)
+        self.client_ip = _normalize_optional_text(self.client_ip)
+        self.auditor_access_request_id = _normalize_optional_text(
+            self.auditor_access_request_id,
+        )
+        self.event_metadata = dict(self.event_metadata)

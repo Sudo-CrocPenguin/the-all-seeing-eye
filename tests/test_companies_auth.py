@@ -7,6 +7,7 @@ from urllib.request import Request
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from backend.app.companies.application.otp_delivery import (
@@ -15,6 +16,7 @@ from backend.app.companies.application.otp_delivery import (
 )
 from backend.app.companies.infrastructure.otp_delivery import TwilioOtpDeliveryProvider
 from backend.app.companies.infrastructure.sqlalchemy_models import (
+    AuditorOtpEventModel,
     CompanyDeviceLinkModel,
     EnrollmentRequestModel,
 )
@@ -64,6 +66,22 @@ def create_test_app() -> FastAPI:
             persistence_backend="sqlalchemy",
             auditor_token="test-auditor-token",
             provisioning_token=PROVISIONING_TOKEN,
+        ),
+        create_schema=True,
+    )
+
+
+def create_rate_limited_test_app() -> FastAPI:
+    return create_app(
+        settings=Settings(
+            app_env="local",
+            database_url="sqlite+pysqlite:///:memory:",
+            persistence_backend="sqlalchemy",
+            auditor_token="test-auditor-token",
+            provisioning_token=PROVISIONING_TOKEN,
+            otp_rate_limit_max_per_company=99,
+            otp_rate_limit_max_per_device=1,
+            otp_rate_limit_max_per_ip=99,
         ),
         create_schema=True,
     )
@@ -386,6 +404,17 @@ async def test_wrong_sms_code_does_not_create_auditor_session() -> None:
     assert verify_response.status_code == 422
     assert verify_response.json()["detail"] == "Codigo SMS invalido"
 
+    runtime_container = get_runtime_container(app)
+    assert runtime_container.session_factory is not None
+    with runtime_container.session_factory() as session:
+        event_types = [
+            item.event_type
+            for item in session.scalars(
+                select(AuditorOtpEventModel).order_by(AuditorOtpEventModel.occurred_at),
+            )
+        ]
+    assert event_types == ["REQUESTED", "FAILED"]
+
 
 @pytest.mark.anyio
 async def test_verified_auditor_request_cannot_be_replayed() -> None:
@@ -435,6 +464,17 @@ async def test_verified_auditor_request_cannot_be_replayed() -> None:
 
     assert replay_response.status_code == 422
     assert replay_response.json()["detail"] == "La solicitud de auditor ya fue verificada"
+
+    runtime_container = get_runtime_container(app)
+    assert runtime_container.session_factory is not None
+    with runtime_container.session_factory() as session:
+        event_types = [
+            item.event_type
+            for item in session.scalars(
+                select(AuditorOtpEventModel).order_by(AuditorOtpEventModel.occurred_at),
+            )
+        ]
+    assert event_types == ["REQUESTED", "VERIFIED"]
 
 
 @pytest.mark.anyio
@@ -487,6 +527,59 @@ async def test_sms_code_is_blocked_after_max_failed_attempts() -> None:
     )
     assert valid_after_block_response.status_code == 422
     assert valid_after_block_response.json()["detail"] == "La solicitud de auditor fue denegada"
+
+    runtime_container = get_runtime_container(app)
+    assert runtime_container.session_factory is not None
+    with runtime_container.session_factory() as session:
+        event_types = [
+            item.event_type
+            for item in session.scalars(
+                select(AuditorOtpEventModel).order_by(AuditorOtpEventModel.occurred_at),
+            )
+        ]
+    assert event_types == ["REQUESTED", "FAILED", "FAILED", "FAILED", "FAILED", "FAILED", "BLOCKED"]
+
+
+@pytest.mark.anyio
+async def test_auditor_access_request_rate_limit_blocks_by_device() -> None:
+    app = create_rate_limited_test_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        company_id = await create_company(client)
+        agent_token = await provision_agent_token(client, device_id="device-auditor")
+        await register_device(
+            client,
+            device_id="device-auditor",
+            agent_token=agent_token,
+            hostname="AUDITOR-LAPTOP",
+        )
+        first_response = await client.post(
+            f"/api/v1/companies/{company_id}/auditor-access-requests",
+            headers={"X-Agent-Token": agent_token},
+            json={"device_id": "device-auditor"},
+        )
+        second_response = await client.post(
+            f"/api/v1/companies/{company_id}/auditor-access-requests",
+            headers={"X-Agent-Token": agent_token},
+            json={"device_id": "device-auditor"},
+        )
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 429
+    assert second_response.json()["detail"] == (
+        "Limite de solicitudes OTP excedido: dispositivo"
+    )
+
+    runtime_container = get_runtime_container(app)
+    assert runtime_container.session_factory is not None
+    with runtime_container.session_factory() as session:
+        events = list(
+            session.scalars(
+                select(AuditorOtpEventModel).order_by(AuditorOtpEventModel.occurred_at),
+            ),
+        )
+    assert [event.event_type for event in events] == ["REQUESTED", "BLOCKED"]
+    assert events[-1].event_metadata == {"reason": "dispositivo"}
 
 
 def test_company_auth_schema_blocks_duplicate_pending_enrollment_requests() -> None:

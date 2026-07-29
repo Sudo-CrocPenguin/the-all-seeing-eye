@@ -16,6 +16,8 @@ from backend.app.companies.application.query_device_company_links import (
     QueryDeviceCompanyLinksUseCase,
 )
 from backend.app.companies.application.request_auditor_access import (
+    OtpRateLimitExceeded,
+    OtpRateLimitPolicy,
     RequestAuditorAccessUseCase,
 )
 from backend.app.companies.application.request_device_enrollment import (
@@ -52,6 +54,23 @@ from backend.app.shared.dependencies import get_container
 from backend.app.shared.security import require_agent_token, require_auditor_session
 
 router = APIRouter(prefix="/companies", tags=["companies"])
+
+
+def _client_ip(request: Request) -> str | None:
+    if request.client is None:
+        return None
+    return request.client.host
+
+
+def _otp_rate_limit_policy(request: Request) -> OtpRateLimitPolicy:
+    settings = request.app.state.container.settings
+    return OtpRateLimitPolicy(
+        window_seconds=settings.otp_rate_limit_window_seconds,
+        max_per_company=settings.otp_rate_limit_max_per_company,
+        max_per_device=settings.otp_rate_limit_max_per_device,
+        max_per_ip=settings.otp_rate_limit_max_per_ip,
+    )
+
 
 @router.post("", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
 async def create_company(
@@ -122,7 +141,7 @@ async def request_auditor_access(
     payload: RequestAuditorAccessRequest,
     request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
-) -> AuditorAccessRequestResponse:
+) -> AuditorAccessRequestResponse | JSONResponse:
     require_agent_token(
         request,
         request.app.state.container.settings,
@@ -134,8 +153,18 @@ async def request_auditor_access(
         container.company_repository,
         container.auditor_access_request_repository,
         otp_delivery_provider=container.otp_delivery_provider,
+        otp_event_repository=container.auditor_otp_event_repository,
+        otp_rate_limit_policy=_otp_rate_limit_policy(request),
     )
-    result = use_case.execute(payload.to_command(company_id))
+    try:
+        result = use_case.execute(
+            payload.to_command(company_id, client_ip=_client_ip(request)),
+        )
+    except OtpRateLimitExceeded as exc:
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content={"detail": str(exc)},
+        )
     return AuditorAccessRequestResponse.from_result(
         result,
     )
@@ -163,11 +192,13 @@ async def verify_auditor_access(
     use_case = VerifyAuditorAccessUseCase(
         container.auditor_access_request_repository,
         container.auditor_session_repository,
+        otp_event_repository=container.auditor_otp_event_repository,
     )
     result = use_case.execute(
         payload.to_command(
             company_id=company_id,
             auditor_access_request_id=auditor_access_request_id,
+            client_ip=_client_ip(request),
         ),
     )
     if not result.is_success or result.session is None:

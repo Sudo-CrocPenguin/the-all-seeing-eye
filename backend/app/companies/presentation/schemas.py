@@ -62,8 +62,17 @@ class CompanyResponse(BaseModel):
 class RequestAuditorAccessRequest(BaseModel):
     device_id: str
 
-    def to_command(self, company_id: str) -> RequestAuditorAccessCommand:
-        return RequestAuditorAccessCommand(company_id=company_id, device_id=self.device_id)
+    def to_command(
+        self,
+        company_id: str,
+        *,
+        client_ip: str | None = None,
+    ) -> RequestAuditorAccessCommand:
+        return RequestAuditorAccessCommand(
+            company_id=company_id,
+            device_id=self.device_id,
+            client_ip=client_ip,
+        )
 
 
 class AuditorAccessRequestResponse(BaseModel):
@@ -103,12 +112,14 @@ class VerifyAuditorAccessRequest(BaseModel):
         *,
         company_id: str,
         auditor_access_request_id: str,
+        client_ip: str | None = None,
     ) -> VerifyAuditorAccessCommand:
         return VerifyAuditorAccessCommand(
             auditor_access_request_id=auditor_access_request_id,
             company_id=company_id,
             device_id=self.device_id,
             verification_code=self.verification_code,
+            client_ip=client_ip,
         )
 
 

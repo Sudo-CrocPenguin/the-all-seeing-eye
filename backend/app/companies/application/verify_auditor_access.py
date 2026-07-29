@@ -5,10 +5,13 @@ from uuid import uuid4
 from backend.app.companies.application.secret_hasher import SecretHasher
 from backend.app.companies.domain.entities import (
     AuditorAccessRequestStatus,
+    AuditorOtpEvent,
+    AuditorOtpEventType,
     AuditorSession,
 )
 from backend.app.companies.domain.repositories import (
     AuditorAccessRequestRepository,
+    AuditorOtpEventRepository,
     AuditorSessionRepository,
 )
 from backend.app.shared.time import utc_now
@@ -29,6 +32,7 @@ class VerifyAuditorAccessCommand:
     company_id: str
     device_id: str
     verification_code: str
+    client_ip: str | None = None
     session_ttl_seconds: int = 43_200
     max_failed_attempts: int = DEFAULT_MAX_OTP_FAILED_ATTEMPTS
 
@@ -48,10 +52,12 @@ class VerifyAuditorAccessUseCase:
         self,
         access_request_repository: AuditorAccessRequestRepository,
         auditor_session_repository: AuditorSessionRepository,
+        otp_event_repository: AuditorOtpEventRepository | None = None,
         secret_hasher: SecretHasher | None = None,
     ) -> None:
         self._access_request_repository = access_request_repository
         self._auditor_session_repository = auditor_session_repository
+        self._otp_event_repository = otp_event_repository
         self._secret_hasher = secret_hasher or SecretHasher()
 
     def execute(self, command: VerifyAuditorAccessCommand) -> VerifyAuditorAccessResult:
@@ -94,7 +100,17 @@ class VerifyAuditorAccessUseCase:
                 max_failed_attempts=command.max_failed_attempts,
             )
             self._access_request_repository.save(access_request)
+            self._record_otp_event(
+                event_type=AuditorOtpEventType.FAILED,
+                command=command,
+                failed_attempts=access_request.failed_attempts,
+            )
             if was_blocked:
+                self._record_otp_event(
+                    event_type=AuditorOtpEventType.BLOCKED,
+                    command=command,
+                    failed_attempts=access_request.failed_attempts,
+                )
                 return VerifyAuditorAccessResult(
                     error_detail=(
                         "La solicitud de auditor fue bloqueada por intentos fallidos"
@@ -113,4 +129,30 @@ class VerifyAuditorAccessUseCase:
         saved_session = self._auditor_session_repository.save(session)
         access_request.mark_verified(saved_session.auditor_session_id, verified_at)
         self._access_request_repository.save(access_request)
+        self._record_otp_event(event_type=AuditorOtpEventType.VERIFIED, command=command)
         return VerifyAuditorAccessResult(session=saved_session)
+
+    def _record_otp_event(
+        self,
+        *,
+        event_type: AuditorOtpEventType,
+        command: VerifyAuditorAccessCommand,
+        failed_attempts: int | None = None,
+    ) -> None:
+        if self._otp_event_repository is None:
+            return
+        event_metadata = {}
+        if failed_attempts is not None:
+            event_metadata["failed_attempts"] = str(failed_attempts)
+        self._otp_event_repository.save(
+            AuditorOtpEvent(
+                otp_event_id=str(uuid4()),
+                company_id=command.company_id,
+                device_id=command.device_id,
+                client_ip=command.client_ip,
+                auditor_access_request_id=command.auditor_access_request_id,
+                event_type=event_type,
+                occurred_at=utc_now(),
+                event_metadata=event_metadata,
+            ),
+        )

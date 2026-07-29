@@ -18,6 +18,7 @@ from backend.app.audit.infrastructure.sqlalchemy_event_repository import (
 from backend.app.companies.application.otp_delivery import OtpDeliveryProvider
 from backend.app.companies.domain.repositories import (
     AuditorAccessRequestRepository,
+    AuditorOtpEventRepository,
     AuditorSessionRepository,
     CompanyDeviceLinkRepository,
     CompanyRepository,
@@ -26,6 +27,7 @@ from backend.app.companies.domain.repositories import (
 )
 from backend.app.companies.infrastructure.memory_repositories import (
     InMemoryAuditorAccessRequestRepository,
+    InMemoryAuditorOtpEventRepository,
     InMemoryAuditorSessionRepository,
     InMemoryCompanyDeviceLinkRepository,
     InMemoryCompanyRepository,
@@ -35,6 +37,7 @@ from backend.app.companies.infrastructure.memory_repositories import (
 from backend.app.companies.infrastructure.otp_delivery import build_otp_delivery_provider
 from backend.app.companies.infrastructure.sqlalchemy_repositories import (
     SQLAlchemyAuditorAccessRequestRepository,
+    SQLAlchemyAuditorOtpEventRepository,
     SQLAlchemyAuditorSessionRepository,
     SQLAlchemyCompanyDeviceLinkRepository,
     SQLAlchemyCompanyRepository,
@@ -85,6 +88,9 @@ class AppContainer:
     auditor_session_repository: AuditorSessionRepository = field(
         default_factory=InMemoryAuditorSessionRepository,
     )
+    auditor_otp_event_repository: AuditorOtpEventRepository = field(
+        default_factory=InMemoryAuditorOtpEventRepository,
+    )
     otp_delivery_provider: OtpDeliveryProvider = field(
         default_factory=lambda: build_otp_delivery_provider(Settings()),
     )
@@ -125,6 +131,9 @@ class RuntimeContainer:
     memory_auditor_session_repository: InMemoryAuditorSessionRepository = field(
         default_factory=InMemoryAuditorSessionRepository,
     )
+    memory_auditor_otp_event_repository: InMemoryAuditorOtpEventRepository = field(
+        default_factory=InMemoryAuditorOtpEventRepository,
+    )
     otp_delivery_provider: OtpDeliveryProvider | None = None
 
     def build_memory_container(self) -> AppContainer:
@@ -139,6 +148,7 @@ class RuntimeContainer:
             company_device_link_repository=self.memory_company_device_link_repository,
             auditor_access_request_repository=self.memory_auditor_access_request_repository,
             auditor_session_repository=self.memory_auditor_session_repository,
+            auditor_otp_event_repository=self.memory_auditor_otp_event_repository,
             otp_delivery_provider=self._otp_delivery_provider(),
         )
 
@@ -154,6 +164,7 @@ class RuntimeContainer:
             company_device_link_repository=SQLAlchemyCompanyDeviceLinkRepository(session),
             auditor_access_request_repository=SQLAlchemyAuditorAccessRequestRepository(session),
             auditor_session_repository=SQLAlchemyAuditorSessionRepository(session),
+            auditor_otp_event_repository=SQLAlchemyAuditorOtpEventRepository(session),
             otp_delivery_provider=self._otp_delivery_provider(),
         )
 

@@ -1,7 +1,10 @@
+from datetime import datetime
 from threading import Lock
 
 from backend.app.companies.domain.entities import (
     AuditorAccessRequest,
+    AuditorOtpEvent,
+    AuditorOtpEventType,
     AuditorSession,
     Company,
     CompanyDeviceLink,
@@ -174,3 +177,37 @@ class InMemoryAuditorSessionRepository:
                 for item in self._items.values()
                 if item.company_id == company_id and item.is_active()
             ]
+
+
+class InMemoryAuditorOtpEventRepository:
+    def __init__(self) -> None:
+        self._items: dict[str, AuditorOtpEvent] = {}
+        self._lock = Lock()
+
+    def save(self, otp_event: AuditorOtpEvent) -> AuditorOtpEvent:
+        with self._lock:
+            self._items[otp_event.otp_event_id] = otp_event
+        return otp_event
+
+    def count_recent_events(
+        self,
+        *,
+        event_type: AuditorOtpEventType,
+        since: datetime,
+        company_id: str | None = None,
+        device_id: str | None = None,
+        client_ip: str | None = None,
+    ) -> int:
+        with self._lock:
+            events = [
+                item
+                for item in self._items.values()
+                if item.event_type == event_type and item.occurred_at >= since
+            ]
+        if company_id is not None:
+            events = [item for item in events if item.company_id == company_id]
+        if device_id is not None:
+            events = [item for item in events if item.device_id == device_id]
+        if client_ip is not None:
+            events = [item for item in events if item.client_ip == client_ip]
+        return len(events)
