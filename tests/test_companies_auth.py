@@ -1,11 +1,18 @@
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import cast
 
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy.exc import IntegrityError
 
+from backend.app.companies.infrastructure.sqlalchemy_models import (
+    CompanyDeviceLinkModel,
+    EnrollmentRequestModel,
+)
 from backend.app.main import create_app
 from backend.app.shared.config import Settings
+from backend.app.shared.container import RuntimeContainer
 
 PROVISIONING_TOKEN = "test-provisioning-token"
 
@@ -21,6 +28,10 @@ def create_test_app() -> FastAPI:
         ),
         create_schema=True,
     )
+
+
+def get_runtime_container(app: FastAPI) -> RuntimeContainer:
+    return cast(RuntimeContainer, app.state.container)
 
 
 async def provision_agent_token(
@@ -351,3 +362,67 @@ async def test_sms_code_is_blocked_after_max_failed_attempts() -> None:
     )
     assert valid_after_block_response.status_code == 422
     assert valid_after_block_response.json()["detail"] == "La solicitud de auditor fue denegada"
+
+
+def test_company_auth_schema_blocks_duplicate_pending_enrollment_requests() -> None:
+    app = create_test_app()
+    runtime_container = get_runtime_container(app)
+    assert runtime_container.session_factory is not None
+
+    requested_at = datetime.now(UTC)
+    with runtime_container.session_factory() as session:
+        session.add_all(
+            [
+                EnrollmentRequestModel(
+                    enrollment_request_id="request-1",
+                    company_id="company-1",
+                    device_id="device-1",
+                    requested_at=requested_at,
+                    status="PENDING",
+                    device_fingerprint_snapshot={"hostname": "worker-1"},
+                ),
+                EnrollmentRequestModel(
+                    enrollment_request_id="request-2",
+                    company_id="company-1",
+                    device_id="device-1",
+                    requested_at=requested_at,
+                    status="PENDING",
+                    device_fingerprint_snapshot={"hostname": "worker-1"},
+                ),
+            ],
+        )
+
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_company_auth_schema_blocks_duplicate_active_device_links() -> None:
+    app = create_test_app()
+    runtime_container = get_runtime_container(app)
+    assert runtime_container.session_factory is not None
+
+    linked_at = datetime.now(UTC)
+    with runtime_container.session_factory() as session:
+        session.add_all(
+            [
+                CompanyDeviceLinkModel(
+                    company_device_link_id="link-1",
+                    company_id="company-1",
+                    device_id="device-1",
+                    linked_at=linked_at,
+                    status="ACTIVE",
+                    revoked_by_device=False,
+                ),
+                CompanyDeviceLinkModel(
+                    company_device_link_id="link-2",
+                    company_id="company-1",
+                    device_id="device-1",
+                    linked_at=linked_at,
+                    status="ACTIVE",
+                    revoked_by_device=False,
+                ),
+            ],
+        )
+
+        with pytest.raises(IntegrityError):
+            session.commit()
