@@ -250,3 +250,52 @@ async def test_wrong_sms_code_does_not_create_auditor_session() -> None:
     assert verify_response.status_code == 422
     assert verify_response.json()["detail"] == "Codigo SMS invalido"
 
+
+@pytest.mark.anyio
+async def test_verified_auditor_request_cannot_be_replayed() -> None:
+    app = create_test_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        company_id = await create_company(client)
+        agent_token = await provision_agent_token(client, device_id="device-auditor")
+        await register_device(
+            client,
+            device_id="device-auditor",
+            agent_token=agent_token,
+            hostname="AUDITOR-LAPTOP",
+        )
+        access_response = await client.post(
+            f"/api/v1/companies/{company_id}/auditor-access-requests",
+            headers={"X-Agent-Token": agent_token},
+            json={"device_id": "device-auditor"},
+        )
+        assert access_response.status_code == 201
+        access_body = access_response.json()
+
+        first_verify_response = await client.post(
+            (
+                f"/api/v1/companies/{company_id}/auditor-access-requests/"
+                f"{access_body['auditor_access_request_id']}/verify"
+            ),
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "device_id": "device-auditor",
+                "verification_code": access_body["verification_code"],
+            },
+        )
+        assert first_verify_response.status_code == 201
+
+        replay_response = await client.post(
+            (
+                f"/api/v1/companies/{company_id}/auditor-access-requests/"
+                f"{access_body['auditor_access_request_id']}/verify"
+            ),
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "device_id": "device-auditor",
+                "verification_code": access_body["verification_code"],
+            },
+        )
+
+    assert replay_response.status_code == 422
+    assert replay_response.json()["detail"] == "La solicitud de auditor ya fue verificada"

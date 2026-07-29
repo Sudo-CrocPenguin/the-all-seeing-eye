@@ -3,7 +3,10 @@ from datetime import timedelta
 from uuid import uuid4
 
 from backend.app.companies.application.secret_hasher import SecretHasher
-from backend.app.companies.domain.entities import AuditorSession
+from backend.app.companies.domain.entities import (
+    AuditorAccessRequestStatus,
+    AuditorSession,
+)
 from backend.app.companies.domain.repositories import (
     AuditorAccessRequestRepository,
     AuditorSessionRepository,
@@ -52,6 +55,12 @@ class VerifyAuditorAccessUseCase:
             raise DomainValidationError("La solicitud no pertenece a este dispositivo")
 
         verified_at = utc_now()
+        if access_request.status is AuditorAccessRequestStatus.VERIFIED:
+            raise DomainValidationError("La solicitud de auditor ya fue verificada")
+        if access_request.status is AuditorAccessRequestStatus.DENIED:
+            raise DomainValidationError("La solicitud de auditor fue denegada")
+        if access_request.status is AuditorAccessRequestStatus.EXPIRED:
+            raise DomainValidationError("La solicitud de auditor expiro")
         if not access_request.is_pending(verified_at):
             access_request.mark_expired()
             self._access_request_repository.save(access_request)
@@ -78,4 +87,3 @@ class VerifyAuditorAccessUseCase:
         access_request.mark_verified(saved_session.auditor_session_id, verified_at)
         self._access_request_repository.save(access_request)
         return saved_session
-
