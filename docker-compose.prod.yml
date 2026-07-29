@@ -20,7 +20,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file:
-      - .env.production
+      - ${BACKEND_ENV_FILE:-.env.production}
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     depends_on:
