@@ -342,6 +342,105 @@ def test_runner_once_reports_lifecycle_and_network_event() -> None:
     assert api_client.network_events[0]["company_device_link_id"] == "link-1"
 
 
+def test_runner_prefers_active_company_from_local_state() -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    connection = ObservedNetworkConnection(
+        occurred_at=datetime(2026, 7, 27, 14, 0, tzinfo=UTC),
+        protocol="TCP",
+        local_ip="192.168.1.10",
+        local_port=51515,
+        destination_ip="93.184.216.34",
+        destination_port=443,
+        status="ESTABLISHED",
+        network_interface="eth0",
+        mac_address="00:11:22:33:44:55",
+    )
+    state = AgentState(
+        device_id="device-1",
+        recording_enabled=True,
+        active_company_id="company-state",
+        active_company_device_link_id="link-state",
+        linked_companies=(
+            LinkedCompanyState(
+                company_id="company-state",
+                company_device_link_id="link-state",
+                company_name="Empresa Estado",
+            ),
+        ),
+    )
+    api_client = FakeAuditApiClient()
+    runner = AgentRunner(
+        AgentSettings(company_id="company-env", company_device_link_id="link-env"),
+        identity_collector=FakeIdentityCollector(identity),
+        network_collector=FakeNetworkCollector([connection]),
+        api_client=api_client,
+        state_store=FakeAgentStateStore(state),
+    )
+
+    runner.run_once()
+
+    assert api_client.network_events[0]["company_id"] == "company-state"
+    assert api_client.network_events[0]["company_device_link_id"] == "link-state"
+
+
+def test_runner_skips_network_events_when_recording_is_disabled() -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    connection = ObservedNetworkConnection(
+        occurred_at=datetime(2026, 7, 27, 14, 0, tzinfo=UTC),
+        protocol="TCP",
+        local_ip="192.168.1.10",
+        local_port=51515,
+        destination_ip="93.184.216.34",
+        destination_port=443,
+        status="ESTABLISHED",
+        network_interface="eth0",
+        mac_address="00:11:22:33:44:55",
+    )
+    state = AgentState(
+        device_id="device-1",
+        recording_enabled=False,
+        active_company_id="company-1",
+        active_company_device_link_id="link-1",
+        linked_companies=(
+            LinkedCompanyState(
+                company_id="company-1",
+                company_device_link_id="link-1",
+                company_name="Acme",
+            ),
+        ),
+    )
+    api_client = FakeAuditApiClient()
+    runner = AgentRunner(
+        AgentSettings(),
+        identity_collector=FakeIdentityCollector(identity),
+        network_collector=FakeNetworkCollector([connection]),
+        api_client=api_client,
+        state_store=FakeAgentStateStore(state),
+    )
+
+    runner.run_once()
+
+    assert api_client.lifecycle_events == [
+        "AGENT_STARTED",
+        "AGENT_HEARTBEAT",
+        "AGENT_STOPPING",
+        "AGENT_STOPPED",
+    ]
+    assert api_client.network_events == []
+
+
 def test_runner_forever_uses_scan_interval_independently_from_heartbeat() -> None:
     identity = DeviceIdentity(
         device_id="device-1",
@@ -899,6 +998,20 @@ class FakeAuditApiClient:
     def send_network_event(self, payload: dict[str, object]) -> dict[str, object]:
         self.network_events.append(payload)
         return {}
+
+
+class FakeAgentStateStore:
+    def __init__(self, state: AgentState) -> None:
+        self.state = state
+        self.saved_states: list[AgentState] = []
+
+    def load(self) -> AgentState:
+        return self.state
+
+    def save(self, state: AgentState) -> AgentState:
+        self.state = state
+        self.saved_states.append(state)
+        return state
 
 
 class FailingPostJsonClient:
