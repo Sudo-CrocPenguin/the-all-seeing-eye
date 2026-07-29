@@ -1068,6 +1068,140 @@ async def test_audit_history_remains_queryable_after_company_link_is_revoked() -
 
 
 @pytest.mark.anyio
+async def test_agent_lists_own_company_links() -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
+        await register_test_device(client, agent_token=agent_token)
+        first_context = await link_device_to_company(
+            client,
+            device_id="device-1",
+            agent_token=agent_token,
+            company_name="Empresa A",
+        )
+        second_context = await link_device_to_company(
+            client,
+            device_id="device-1",
+            agent_token=agent_token,
+            company_name="Empresa B",
+        )
+
+        response = await client.get(
+            "/api/v1/companies/device-links",
+            headers={"X-Agent-Token": agent_token},
+            params={"device_id": "device-1"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert {link["company_name"] for link in body} == {"Empresa A", "Empresa B"}
+    assert {link["company_device_link_id"] for link in body} == {
+        first_context.company_device_link_id,
+        second_context.company_device_link_id,
+    }
+    assert {link["status"] for link in body} == {"ACTIVE"}
+
+
+@pytest.mark.anyio
+async def test_agent_cannot_list_links_for_another_device() -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client, device_id="device-1")
+        second_agent_token = await provision_agent_token(client, device_id="device-2")
+        await register_test_device(client, agent_token=agent_token, device_id="device-1")
+        await register_test_device(
+            client,
+            agent_token=second_agent_token,
+            device_id="device-2",
+            hostname="DEV-LAPTOP-002",
+        )
+
+        response = await client.get(
+            "/api/v1/companies/device-links",
+            headers={"X-Agent-Token": agent_token},
+            params={"device_id": "device-2"},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Token de agente invalido"
+
+
+@pytest.mark.anyio
+async def test_agent_revokes_own_company_link_without_deleting_history() -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        agent_token = await provision_agent_token(client)
+        await register_test_device(client, agent_token=agent_token)
+        company_context = await link_device_to_company(
+            client,
+            device_id="device-1",
+            agent_token=agent_token,
+        )
+        event_response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "occurred_at": "2026-07-27T14:03:00+00:00",
+                "device_id": "device-1",
+                **company_context.event_context(),
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_host": "historial.local",
+                "destination_ip": "10.0.0.30",
+                "destination_port": 443,
+            },
+        )
+        assert event_response.status_code == 201
+
+        revoke_response = await client.post(
+            (
+                "/api/v1/companies/device-links/"
+                f"{company_context.company_device_link_id}/revoke"
+            ),
+            headers={"X-Agent-Token": agent_token},
+            json={"device_id": "device-1"},
+        )
+        historical_response = await client.get(
+            "/api/v1/audit/network-events",
+            headers=auditor_session_headers(company_context.auditor_session_id),
+            params={"device_id": "device-1"},
+        )
+        rejected_event_response = await client.post(
+            "/api/v1/audit/network-events",
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "occurred_at": "2026-07-27T14:05:00+00:00",
+                "device_id": "device-1",
+                **company_context.event_context(),
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "linux",
+                "agent_version": "0.1.0",
+                "protocol": "tcp",
+                "local_ip": "192.168.1.10",
+                "destination_host": "rechazado.local",
+                "destination_ip": "10.0.0.31",
+                "destination_port": 443,
+            },
+        )
+
+    assert revoke_response.status_code == 200
+    assert revoke_response.json()["status"] == "REVOKED"
+    assert revoke_response.json()["revoked_by_device"] is True
+    assert historical_response.status_code == 200
+    assert [event["destination_host"] for event in historical_response.json()] == [
+        "historial.local",
+    ]
+    assert rejected_event_response.status_code == 422
+    assert (
+        rejected_event_response.json()["detail"]
+        == "El vinculo empresa-dispositivo no esta activo"
+    )
+
+
+@pytest.mark.anyio
 async def test_query_incident_window_accepts_exact_timestamp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
