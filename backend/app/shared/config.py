@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     agent_token_header: str = "X-Agent-Token"
     auditor_token: str | None = None
     auditor_token_header: str = "X-Auditor-Token"
+    auditor_session_header: str = "X-Auditor-Session"
     provisioning_token: str | None = None
     provisioning_token_header: str = "X-Provisioning-Token"
     trusted_proxy_ips: str = ""
