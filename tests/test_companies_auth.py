@@ -1,11 +1,19 @@
 from datetime import UTC, datetime
+from types import TracebackType
 from typing import cast
+from urllib.parse import parse_qs
+from urllib.request import Request
 
 import httpx
 import pytest
 from fastapi import FastAPI
 from sqlalchemy.exc import IntegrityError
 
+from backend.app.companies.application.otp_delivery import (
+    AuditorOtpDeliveryRequest,
+    LocalOtpDeliveryProvider,
+)
+from backend.app.companies.infrastructure.otp_delivery import TwilioOtpDeliveryProvider
 from backend.app.companies.infrastructure.sqlalchemy_models import (
     CompanyDeviceLinkModel,
     EnrollmentRequestModel,
@@ -15,6 +23,37 @@ from backend.app.shared.config import Settings
 from backend.app.shared.container import RuntimeContainer
 
 PROVISIONING_TOKEN = "test-provisioning-token"
+
+
+class FakeTwilioResponse:
+    def __enter__(self) -> "FakeTwilioResponse":
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return b'{"sid":"SM123"}'
+
+
+class CapturingTwilioOpener:
+    def __init__(self) -> None:
+        self.request_body: str | None = None
+        self.authorization_header: str | None = None
+        self.timeout_seconds: float | None = None
+
+    def __call__(self, request: Request, timeout_seconds: float) -> FakeTwilioResponse:
+        body = request.data
+        assert isinstance(body, bytes)
+        self.request_body = body.decode()
+        self.authorization_header = request.get_header("Authorization")
+        self.timeout_seconds = timeout_seconds
+        return FakeTwilioResponse()
 
 
 def create_test_app() -> FastAPI:
@@ -28,6 +67,92 @@ def create_test_app() -> FastAPI:
         ),
         create_schema=True,
     )
+
+
+def test_local_otp_delivery_can_expose_code_only_when_configured() -> None:
+    delivery_request = AuditorOtpDeliveryRequest(
+        company_id="company-1",
+        company_name="Acme",
+        phone_number="+15550000000",
+        device_id="device-1",
+        verification_code="123456",
+        expires_at=datetime(2026, 7, 29, 10, 10, tzinfo=UTC),
+    )
+
+    exposed_result = LocalOtpDeliveryProvider(
+        expose_verification_code=True,
+    ).deliver_auditor_otp(delivery_request)
+    hidden_result = LocalOtpDeliveryProvider(
+        expose_verification_code=False,
+    ).deliver_auditor_otp(delivery_request)
+
+    assert exposed_result.delivery_channel == "local_response"
+    assert exposed_result.exposed_verification_code == "123456"
+    assert hidden_result.delivery_channel == "local_response"
+    assert hidden_result.exposed_verification_code is None
+
+
+def test_twilio_otp_delivery_posts_sms_payload_without_exposing_code() -> None:
+    opener = CapturingTwilioOpener()
+    provider = TwilioOtpDeliveryProvider(
+        account_sid="AC123",
+        auth_token="secret-token",
+        from_phone_number="+15551111111",
+        timeout_seconds=5,
+        opener=opener,
+    )
+    delivery_request = AuditorOtpDeliveryRequest(
+        company_id="company-1",
+        company_name="Acme",
+        phone_number="+15550000000",
+        device_id="device-1",
+        verification_code="654321",
+        expires_at=datetime(2026, 7, 29, 10, 10, tzinfo=UTC),
+    )
+
+    result = provider.deliver_auditor_otp(delivery_request)
+
+    assert result.delivery_channel == "sms"
+    assert result.exposed_verification_code is None
+    assert opener.authorization_header == "Basic QUMxMjM6c2VjcmV0LXRva2Vu"
+    assert opener.timeout_seconds == 5
+    assert opener.request_body is not None
+    parsed_body = parse_qs(opener.request_body)
+    assert parsed_body["To"] == ["+15550000000"]
+    assert parsed_body["From"] == ["+15551111111"]
+    assert "654321" in parsed_body["Body"][0]
+
+
+def test_production_settings_reject_local_otp_provider() -> None:
+    with pytest.raises(ValueError, match="OTP_DELIVERY_PROVIDER"):
+        Settings(
+            app_env="production",
+            auditor_token="a" * 32,
+            provisioning_token="b" * 32,
+            otp_delivery_provider="local",
+        )
+
+
+def test_production_settings_require_twilio_credentials() -> None:
+    with pytest.raises(ValueError, match="TWILIO_ACCOUNT_SID"):
+        Settings(
+            app_env="production",
+            auditor_token="a" * 32,
+            provisioning_token="b" * 32,
+            otp_delivery_provider="twilio",
+        )
+
+    settings = Settings(
+        app_env="production",
+        auditor_token="a" * 32,
+        provisioning_token="b" * 32,
+        otp_delivery_provider="twilio",
+        twilio_account_sid="AC123",
+        twilio_auth_token="c" * 32,
+        twilio_from_phone_number="+15551111111",
+    )
+
+    assert settings.otp_delivery_provider == "twilio"
 
 
 def get_runtime_container(app: FastAPI) -> RuntimeContainer:

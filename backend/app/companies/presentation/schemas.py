@@ -80,8 +80,6 @@ class AuditorAccessRequestResponse(BaseModel):
     def from_result(
         cls,
         result: RequestedAuditorAccess,
-        *,
-        delivery_channel: str,
     ) -> "AuditorAccessRequestResponse":
         access_request = result.access_request
         return cls(
@@ -91,7 +89,7 @@ class AuditorAccessRequestResponse(BaseModel):
             requested_at=access_request.requested_at,
             expires_at=access_request.expires_at,
             status=access_request.status.value,
-            delivery_channel=delivery_channel,
+            delivery_channel=result.delivery_channel,
             verification_code=result.verification_code,
         )
 

@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     provisioning_token: str | None = None
     provisioning_token_header: str = "X-Provisioning-Token"
     trusted_proxy_ips: str = ""
+    otp_delivery_provider: Literal["local", "twilio"] = "local"
+    otp_delivery_timeout_seconds: int = 10
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_from_phone_number: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
@@ -35,6 +40,13 @@ class Settings(BaseSettings):
 
         _require_strong_shared_secret("AUDITOR_TOKEN", self.auditor_token)
         _require_strong_shared_secret("PROVISIONING_TOKEN", self.provisioning_token)
+        if self.app_env.lower() == "production":
+            if self.otp_delivery_provider == "local":
+                raise ValueError("OTP_DELIVERY_PROVIDER no puede ser local en produccion")
+            if self.otp_delivery_provider == "twilio":
+                _require_text("TWILIO_ACCOUNT_SID", self.twilio_account_sid)
+                _require_strong_shared_secret("TWILIO_AUTH_TOKEN", self.twilio_auth_token)
+                _require_text("TWILIO_FROM_PHONE_NUMBER", self.twilio_from_phone_number)
         return self
 
 
@@ -49,3 +61,8 @@ def _require_strong_shared_secret(name: str, value: str | None) -> None:
             f"{name} debe tener al menos {_MIN_SHARED_SECRET_LENGTH} caracteres "
             "en entornos no locales",
         )
+
+
+def _require_text(name: str, value: str | None) -> None:
+    if value is None or value.strip() == "":
+        raise ValueError(f"{name} es obligatorio")

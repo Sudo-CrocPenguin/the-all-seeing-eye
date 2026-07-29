@@ -53,18 +53,6 @@ from backend.app.shared.security import require_agent_token, require_auditor_ses
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
-_LOCAL_ENVS = {"local", "test", "development"}
-
-
-def _expose_local_verification_code(request: Request) -> bool:
-    settings = request.app.state.container.settings
-    return settings.app_env.lower() in _LOCAL_ENVS
-
-
-def _delivery_channel(request: Request) -> str:
-    return "local_response" if _expose_local_verification_code(request) else "sms"
-
-
 @router.post("", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
 async def create_company(
     payload: CreateCompanyRequest,
@@ -145,14 +133,11 @@ async def request_auditor_access(
     use_case = RequestAuditorAccessUseCase(
         container.company_repository,
         container.auditor_access_request_repository,
+        otp_delivery_provider=container.otp_delivery_provider,
     )
-    result = use_case.execute(
-        payload.to_command(company_id),
-        expose_verification_code=_expose_local_verification_code(request),
-    )
+    result = use_case.execute(payload.to_command(company_id))
     return AuditorAccessRequestResponse.from_result(
         result,
-        delivery_channel=_delivery_channel(request),
     )
 
 

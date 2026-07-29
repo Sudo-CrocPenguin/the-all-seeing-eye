@@ -2,6 +2,11 @@ from dataclasses import dataclass
 from datetime import timedelta
 from uuid import uuid4
 
+from backend.app.companies.application.otp_delivery import (
+    AuditorOtpDeliveryRequest,
+    LocalOtpDeliveryProvider,
+    OtpDeliveryProvider,
+)
 from backend.app.companies.application.secret_hasher import SecretHasher
 from backend.app.companies.domain.entities import AuditorAccessRequest
 from backend.app.companies.domain.repositories import (
@@ -22,6 +27,7 @@ class RequestAuditorAccessCommand:
 @dataclass(frozen=True, slots=True)
 class RequestedAuditorAccess:
     access_request: AuditorAccessRequest
+    delivery_channel: str
     verification_code: str | None
 
 
@@ -31,10 +37,12 @@ class RequestAuditorAccessUseCase:
         company_repository: CompanyRepository,
         access_request_repository: AuditorAccessRequestRepository,
         secret_hasher: SecretHasher | None = None,
+        otp_delivery_provider: OtpDeliveryProvider | None = None,
     ) -> None:
         self._company_repository = company_repository
         self._access_request_repository = access_request_repository
         self._secret_hasher = secret_hasher or SecretHasher()
+        self._otp_delivery_provider = otp_delivery_provider
 
     def execute(
         self,
@@ -59,7 +67,21 @@ class RequestAuditorAccessUseCase:
             expires_at=requested_at + timedelta(seconds=max(command.otp_ttl_seconds, 60)),
         )
         saved_request = self._access_request_repository.save(access_request)
+        otp_delivery_provider = self._otp_delivery_provider or LocalOtpDeliveryProvider(
+            expose_verification_code=expose_verification_code,
+        )
+        delivery_result = otp_delivery_provider.deliver_auditor_otp(
+            AuditorOtpDeliveryRequest(
+                company_id=company.company_id,
+                company_name=company.name,
+                phone_number=company.phone_number,
+                device_id=command.device_id,
+                verification_code=verification_code,
+                expires_at=access_request.expires_at,
+            ),
+        )
         return RequestedAuditorAccess(
             access_request=saved_request,
-            verification_code=verification_code if expose_verification_code else None,
+            delivery_channel=delivery_result.delivery_channel,
+            verification_code=delivery_result.exposed_verification_code,
         )
