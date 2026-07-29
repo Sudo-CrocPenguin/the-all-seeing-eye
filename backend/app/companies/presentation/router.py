@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import JSONResponse
 
 from backend.app.companies.application.create_company import CreateCompanyUseCase
@@ -23,7 +23,6 @@ from backend.app.companies.application.review_enrollment_request import (
 from backend.app.companies.application.verify_auditor_access import (
     VerifyAuditorAccessUseCase,
 )
-from backend.app.companies.domain.entities import AuditorSession
 from backend.app.companies.presentation.schemas import (
     AuditorAccessRequestResponse,
     AuditorSessionResponse,
@@ -41,42 +40,11 @@ from backend.app.companies.presentation.schemas import (
 )
 from backend.app.shared.container import AppContainer
 from backend.app.shared.dependencies import get_container
-from backend.app.shared.security import require_agent_token
+from backend.app.shared.security import require_agent_token, require_auditor_session
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
 _LOCAL_ENVS = {"local", "test", "development"}
-
-
-def _require_auditor_session(
-    request: Request,
-    container: AppContainer,
-    *,
-    company_id: str,
-    required_scope: str | None = None,
-) -> AuditorSession:
-    settings = request.app.state.container.settings
-    session_id = request.headers.get(settings.auditor_session_header)
-    if not session_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Sesion de auditor requerida",
-        )
-
-    session = container.auditor_session_repository.find_by_id(session_id)
-    if session is None or not session.is_active() or session.company_id != company_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Sesion de auditor invalida",
-        )
-
-    if required_scope is not None and required_scope not in session.scopes:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="La sesion de auditor no tiene permisos suficientes",
-        )
-
-    return session
 
 
 def _expose_local_verification_code(request: Request) -> bool:
@@ -178,8 +146,9 @@ async def create_enrollment_code(
     request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
 ) -> EnrollmentCodeResponse:
-    _require_auditor_session(
+    require_auditor_session(
         request,
+        request.app.state.container.settings,
         container,
         company_id=company_id,
         required_scope="devices:approve",
@@ -228,8 +197,9 @@ async def list_enrollment_requests(
     container: Annotated[AppContainer, Depends(get_container)],
     status_filter: Annotated[str | None, Query(alias="status")] = None,
 ) -> list[EnrollmentRequestResponse]:
-    _require_auditor_session(
+    require_auditor_session(
         request,
+        request.app.state.container.settings,
         container,
         company_id=company_id,
         required_scope="devices:read",
@@ -255,8 +225,9 @@ async def review_enrollment_request(
     request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
 ) -> ReviewedEnrollmentRequestResponse:
-    auditor_session = _require_auditor_session(
+    auditor_session = require_auditor_session(
         request,
+        request.app.state.container.settings,
         container,
         company_id=company_id,
         required_scope="devices:approve",
@@ -281,8 +252,9 @@ async def get_company_summary(
     request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
 ) -> CompanySummaryResponse:
-    _require_auditor_session(
+    require_auditor_session(
         request,
+        request.app.state.container.settings,
         container,
         company_id=company_id,
         required_scope="company:read",
