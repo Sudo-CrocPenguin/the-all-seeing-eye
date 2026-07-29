@@ -269,15 +269,15 @@ La plataforma debe implementar controles de proteccion desde el inicio:
 
 ## Estado Actual
 
-El proyecto se encuentra preparando beta local. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. Las consultas de eventos de auditoria requieren sesion temporal de auditor por empresa. El backend actualiza `last_seen_at` cuando recibe senales validas de agentes autenticados, detecta heartbeats perdidos por vinculo activo, registra recuperaciones y expone una consulta de ventana forense por rango o marca exacta de tiempo.
+El proyecto se encuentra en preparacion de release V1. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. Las consultas de eventos de auditoria requieren sesion temporal de auditor por empresa. El backend actualiza `last_seen_at` cuando recibe senales validas de agentes autenticados, detecta heartbeats perdidos por vinculo activo, registra recuperaciones y expone una consulta de ventana forense por rango o marca exacta de tiempo.
 
 El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes enriquecidas con usuario local, PID, proceso, ejecutable y mapa local de servicios, adjuntar `company_id` y `company_device_link_id` desde estado local multiempresa, guardar eventos pendientes en cola local cuando el backend no responde y desplegarse como servicio administrado en Linux/Windows.
 
 El CLI de auditor permite crear empresas, solicitar y verificar sesiones temporales, generar codigos de vinculacion, revisar solicitudes, consultar resumen/historial y exportar evidencia JSON por empresa y rango de fechas sin depender de Swagger.
 
-La beta exige que los eventos pertenezcan a dispositivos registrados, no encola errores fatales del backend, conserva orden causal en la cola local y acepta IP publica desde headers de proxy solo cuando el proxy esta declarado en `TRUSTED_PROXY_IPS`. El `public_ip` del JSON del agente no se usa como evidencia.
+V1 exige que los eventos pertenezcan a dispositivos registrados y a vinculos activos de empresa, no encola errores fatales del backend, conserva orden causal en la cola local y acepta IP publica desde headers de proxy solo cuando el proxy esta declarado en `TRUSTED_PROXY_IPS`. El `public_ip` del JSON del agente no se usa como evidencia.
 
-La version `0.1.0-beta.1` es apta para piloto controlado, no para produccion abierta. Fuera de local, el backend debe ir detras de HTTPS/reverse proxy o VPN, los tokens compartidos deben ser fuertes, `/docs` debe desactivarse y el scheduler de heartbeats debe quedar activo.
+La version `1.0.0` queda orientada a despliegue V1 con PostgreSQL, HTTPS/reverse proxy, proveedor SMS real, secretos fuertes, `/docs` desactivado en produccion y healthcheck bloqueante si Alembic no esta en `head`.
 
 ## Despliegue Del Agente Como Servicio
 
