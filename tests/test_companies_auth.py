@@ -299,3 +299,55 @@ async def test_verified_auditor_request_cannot_be_replayed() -> None:
 
     assert replay_response.status_code == 422
     assert replay_response.json()["detail"] == "La solicitud de auditor ya fue verificada"
+
+
+@pytest.mark.anyio
+async def test_sms_code_is_blocked_after_max_failed_attempts() -> None:
+    app = create_test_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        company_id = await create_company(client)
+        agent_token = await provision_agent_token(client, device_id="device-auditor")
+        await register_device(
+            client,
+            device_id="device-auditor",
+            agent_token=agent_token,
+            hostname="AUDITOR-LAPTOP",
+        )
+        access_response = await client.post(
+            f"/api/v1/companies/{company_id}/auditor-access-requests",
+            headers={"X-Agent-Token": agent_token},
+            json={"device_id": "device-auditor"},
+        )
+        assert access_response.status_code == 201
+        access_body = access_response.json()
+        verify_url = (
+            f"/api/v1/companies/{company_id}/auditor-access-requests/"
+            f"{access_body['auditor_access_request_id']}/verify"
+        )
+
+        invalid_responses = [
+            await client.post(
+                verify_url,
+                headers={"X-Agent-Token": agent_token},
+                json={"device_id": "device-auditor", "verification_code": "000000"},
+            )
+            for _attempt in range(5)
+        ]
+        valid_after_block_response = await client.post(
+            verify_url,
+            headers={"X-Agent-Token": agent_token},
+            json={
+                "device_id": "device-auditor",
+                "verification_code": access_body["verification_code"],
+            },
+        )
+
+    assert [response.status_code for response in invalid_responses] == [422] * 5
+    assert invalid_responses[0].json()["detail"] == "Codigo SMS invalido"
+    assert (
+        invalid_responses[-1].json()["detail"]
+        == "La solicitud de auditor fue bloqueada por intentos fallidos"
+    )
+    assert valid_after_block_response.status_code == 422
+    assert valid_after_block_response.json()["detail"] == "La solicitud de auditor fue denegada"

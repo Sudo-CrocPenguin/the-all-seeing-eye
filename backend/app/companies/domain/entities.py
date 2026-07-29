@@ -240,8 +240,12 @@ class AuditorAccessRequest:
         checked_at = ensure_aware(now or utc_now())
         return self.status is AuditorAccessRequestStatus.PENDING and checked_at <= self.expires_at
 
-    def register_failed_attempt(self) -> None:
+    def register_failed_attempt(self, *, max_failed_attempts: int) -> bool:
         self.failed_attempts += 1
+        if self.failed_attempts >= max(max_failed_attempts, 1):
+            self.mark_denied()
+            return True
+        return False
 
     def mark_verified(
         self,
@@ -254,6 +258,9 @@ class AuditorAccessRequest:
 
     def mark_expired(self) -> None:
         self.status = AuditorAccessRequestStatus.EXPIRED
+
+    def mark_denied(self) -> None:
+        self.status = AuditorAccessRequestStatus.DENIED
 
 
 @dataclass(slots=True)
@@ -282,4 +289,3 @@ class AuditorSession:
     def is_active(self, now: datetime | None = None) -> bool:
         checked_at = ensure_aware(now or utc_now())
         return self.revoked_at is None and checked_at <= self.expires_at
-

@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
 
 from backend.app.companies.application.create_company import CreateCompanyUseCase
 from backend.app.companies.application.create_enrollment_code import (
@@ -140,7 +141,7 @@ async def verify_auditor_access(
     payload: VerifyAuditorAccessRequest,
     request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
-) -> AuditorSessionResponse:
+) -> AuditorSessionResponse | JSONResponse:
     require_agent_token(
         request,
         request.app.state.container.settings,
@@ -152,13 +153,18 @@ async def verify_auditor_access(
         container.auditor_access_request_repository,
         container.auditor_session_repository,
     )
-    session = use_case.execute(
+    result = use_case.execute(
         payload.to_command(
             company_id=company_id,
             auditor_access_request_id=auditor_access_request_id,
         ),
     )
-    return AuditorSessionResponse.from_domain(session)
+    if not result.is_success or result.session is None:
+        return JSONResponse(
+            status_code=422,
+            content={"detail": result.error_detail or "Solicitud de auditor invalida"},
+        )
+    return AuditorSessionResponse.from_domain(result.session)
 
 
 @router.post(
