@@ -201,7 +201,10 @@ class AuditApiClient:
     def _open(self, request: Request, path: str) -> bytes:
         try:
             with urlopen(request, timeout=self._timeout_seconds) as response:
-                return response.read()
+                raw_response = response.read()
+                if not isinstance(raw_response, bytes):
+                    raise AgentTransportError(f"Respuesta inesperada del backend para {path}")
+                return raw_response
         except HTTPError as exc:
             error_body = exc.read().decode(errors="replace")
             raise AgentTransportError(

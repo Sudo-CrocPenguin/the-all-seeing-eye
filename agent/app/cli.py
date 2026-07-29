@@ -193,7 +193,8 @@ def _settings_from_args(args: argparse.Namespace) -> AgentSettings:
 def _resolve_command(args: argparse.Namespace) -> str | None:
     if args.once:
         return "run-once"
-    return args.command
+    command = args.command
+    return command if isinstance(command, str) else None
 
 
 def _print_status(settings: AgentSettings) -> None:

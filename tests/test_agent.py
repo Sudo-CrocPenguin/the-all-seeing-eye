@@ -2,7 +2,7 @@ import json
 import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 from agent.app import cli as agent_cli
 from agent.app.config import AgentSettings
@@ -992,7 +992,8 @@ def test_api_client_lists_device_links(monkeypatch: Any) -> None:
     assert captured_request["url"] == (
         "https://backend.local:8000/api/v1/companies/device-links?device_id=device-1"
     )
-    assert captured_request["headers"]["X-agent-token"] == "agent-token"
+    headers = cast(dict[str, str], captured_request["headers"])
+    assert headers["X-agent-token"] == "agent-token"
     assert links == [{"company_id": "company-1", "company_name": "Acme"}]
 
 
