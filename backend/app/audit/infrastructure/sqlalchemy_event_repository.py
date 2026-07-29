@@ -26,6 +26,8 @@ def _network_model_to_domain(model: NetworkAuditEventModel) -> NetworkAuditEvent
         event_id=model.event_id,
         occurred_at=model.occurred_at,
         device_id=model.device_id,
+        company_id=model.company_id,
+        company_device_link_id=model.company_device_link_id,
         hostname=model.hostname,
         os_name=model.os_name,
         agent_version=model.agent_version,
@@ -57,6 +59,8 @@ def _network_domain_to_model(event: NetworkAuditEvent) -> NetworkAuditEventModel
         event_id=event.event_id,
         occurred_at=event.occurred_at,
         device_id=event.device_id,
+        company_id=event.company_id,
+        company_device_link_id=event.company_device_link_id,
         hostname=event.hostname,
         os_name=event.os_name,
         agent_version=event.agent_version,
@@ -89,6 +93,8 @@ def _lifecycle_model_to_domain(model: AgentLifecycleEventModel) -> AgentLifecycl
         event_type=AgentLifecycleEventType(model.event_type),
         occurred_at=model.occurred_at,
         device_id=model.device_id,
+        company_id=model.company_id,
+        company_device_link_id=model.company_device_link_id,
         hostname=model.hostname,
         agent_version=model.agent_version,
         local_ip=model.local_ip,
@@ -107,6 +113,8 @@ def _lifecycle_domain_to_model(event: AgentLifecycleEvent) -> AgentLifecycleEven
         event_type=event.event_type.value,
         occurred_at=event.occurred_at,
         device_id=event.device_id,
+        company_id=event.company_id,
+        company_device_link_id=event.company_device_link_id,
         hostname=event.hostname,
         agent_version=event.agent_version,
         local_ip=event.local_ip,
@@ -148,6 +156,13 @@ class SQLAlchemyNetworkAuditEventRepository:
         statement: Select[Any],
         filters: NetworkAuditEventFilters,
     ) -> Select[Any]:
+        if filters.company_id:
+            statement = statement.where(NetworkAuditEventModel.company_id == filters.company_id)
+        if filters.company_device_link_id:
+            statement = statement.where(
+                NetworkAuditEventModel.company_device_link_id
+                == filters.company_device_link_id,
+            )
         if filters.device_id:
             statement = statement.where(NetworkAuditEventModel.device_id == filters.device_id)
         if filters.local_ip:
@@ -204,6 +219,13 @@ class SQLAlchemyAgentLifecycleEventRepository:
         statement: Select[Any],
         filters: AgentLifecycleEventFilters,
     ) -> Select[Any]:
+        if filters.company_id:
+            statement = statement.where(AgentLifecycleEventModel.company_id == filters.company_id)
+        if filters.company_device_link_id:
+            statement = statement.where(
+                AgentLifecycleEventModel.company_device_link_id
+                == filters.company_device_link_id,
+            )
         if filters.device_id:
             statement = statement.where(AgentLifecycleEventModel.device_id == filters.device_id)
         if filters.event_type:

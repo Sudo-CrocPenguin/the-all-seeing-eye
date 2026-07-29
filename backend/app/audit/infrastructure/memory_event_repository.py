@@ -31,6 +31,14 @@ class InMemoryNetworkAuditEventRepository:
         with self._lock:
             items = list(self._items)
 
+        if filters.company_id:
+            items = [item for item in items if item.company_id == filters.company_id]
+        if filters.company_device_link_id:
+            items = [
+                item
+                for item in items
+                if item.company_device_link_id == filters.company_device_link_id
+            ]
         if filters.device_id:
             items = [item for item in items if item.device_id == filters.device_id]
         if filters.local_ip:
@@ -77,6 +85,14 @@ class InMemoryAgentLifecycleEventRepository:
         with self._lock:
             items = list(self._items)
 
+        if filters.company_id:
+            items = [item for item in items if item.company_id == filters.company_id]
+        if filters.company_device_link_id:
+            items = [
+                item
+                for item in items
+                if item.company_device_link_id == filters.company_device_link_id
+            ]
         if filters.device_id:
             items = [item for item in items if item.device_id == filters.device_id]
         if filters.event_type:

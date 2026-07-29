@@ -377,6 +377,20 @@ class SQLAlchemyCompanyDeviceLinkRepository:
             for model in self._session.scalars(statement).all()
         ]
 
+    def list_active(self) -> list[CompanyDeviceLink]:
+        statement = (
+            select(CompanyDeviceLinkModel)
+            .where(
+                CompanyDeviceLinkModel.status == "ACTIVE",
+                CompanyDeviceLinkModel.revoked_at.is_(None),
+            )
+            .order_by(CompanyDeviceLinkModel.linked_at.desc())
+        )
+        return [
+            _company_device_link_to_domain(model)
+            for model in self._session.scalars(statement).all()
+        ]
+
 
 class SQLAlchemyAuditorAccessRequestRepository:
     def __init__(self, session: Session) -> None:

@@ -133,6 +133,10 @@ class InMemoryCompanyDeviceLinkRepository:
         with self._lock:
             return [item for item in self._items.values() if item.device_id == device_id]
 
+    def list_active(self) -> list[CompanyDeviceLink]:
+        with self._lock:
+            return [item for item in self._items.values() if item.is_active]
+
 
 class InMemoryAuditorAccessRequestRepository:
     def __init__(self) -> None:
