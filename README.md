@@ -9,6 +9,7 @@ El sistema esta pensado para ambientes empresariales donde los empleados son inf
 - [Contexto forense de la aplicacion](docs/contexto-forense.md)
 - [Beta local de historial forense](docs/beta-local-historial-forense.md)
 - [Piloto controlado 0.1.0 beta](docs/piloto-controlado.md)
+- [Diseno de autenticacion multiempresa por terminal](docs/auth-multiempresa-terminal.md)
 
 ## Para Que Sirve
 
