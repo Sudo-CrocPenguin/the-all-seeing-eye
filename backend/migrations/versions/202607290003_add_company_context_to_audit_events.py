@@ -18,22 +18,38 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     op.execute("DROP VIEW IF EXISTS device_movements")
-    op.add_column(
-        "network_audit_events",
-        sa.Column("company_id", sa.String(length=36), nullable=True),
-    )
-    op.add_column(
-        "network_audit_events",
-        sa.Column("company_device_link_id", sa.String(length=36), nullable=True),
-    )
-    op.add_column(
-        "agent_lifecycle_events",
-        sa.Column("company_id", sa.String(length=36), nullable=True),
-    )
-    op.add_column(
-        "agent_lifecycle_events",
-        sa.Column("company_device_link_id", sa.String(length=36), nullable=True),
-    )
+    if op.get_bind().dialect.name == "sqlite":
+        with op.batch_alter_table("network_audit_events", recreate="always") as batch_op:
+            batch_op.add_column(
+                sa.Column("company_id", sa.String(length=36), nullable=False),
+            )
+            batch_op.add_column(
+                sa.Column("company_device_link_id", sa.String(length=36), nullable=False),
+            )
+        with op.batch_alter_table("agent_lifecycle_events", recreate="always") as batch_op:
+            batch_op.add_column(
+                sa.Column("company_id", sa.String(length=36), nullable=False),
+            )
+            batch_op.add_column(
+                sa.Column("company_device_link_id", sa.String(length=36), nullable=False),
+            )
+    else:
+        op.add_column(
+            "network_audit_events",
+            sa.Column("company_id", sa.String(length=36), nullable=False),
+        )
+        op.add_column(
+            "network_audit_events",
+            sa.Column("company_device_link_id", sa.String(length=36), nullable=False),
+        )
+        op.add_column(
+            "agent_lifecycle_events",
+            sa.Column("company_id", sa.String(length=36), nullable=False),
+        )
+        op.add_column(
+            "agent_lifecycle_events",
+            sa.Column("company_device_link_id", sa.String(length=36), nullable=False),
+        )
     op.create_index("ix_network_audit_events_company_id", "network_audit_events", ["company_id"])
     op.create_index(
         "ix_network_audit_events_company_device_link_id",
@@ -101,10 +117,18 @@ def downgrade() -> None:
         table_name="network_audit_events",
     )
     op.drop_index("ix_network_audit_events_company_id", table_name="network_audit_events")
-    op.drop_column("agent_lifecycle_events", "company_device_link_id")
-    op.drop_column("agent_lifecycle_events", "company_id")
-    op.drop_column("network_audit_events", "company_device_link_id")
-    op.drop_column("network_audit_events", "company_id")
+    if op.get_bind().dialect.name == "sqlite":
+        with op.batch_alter_table("agent_lifecycle_events", recreate="always") as batch_op:
+            batch_op.drop_column("company_device_link_id")
+            batch_op.drop_column("company_id")
+        with op.batch_alter_table("network_audit_events", recreate="always") as batch_op:
+            batch_op.drop_column("company_device_link_id")
+            batch_op.drop_column("company_id")
+    else:
+        op.drop_column("agent_lifecycle_events", "company_device_link_id")
+        op.drop_column("agent_lifecycle_events", "company_id")
+        op.drop_column("network_audit_events", "company_device_link_id")
+        op.drop_column("network_audit_events", "company_id")
     op.execute(_device_movements_view_sql(include_company_context=False))
 
 

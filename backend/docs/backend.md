@@ -156,6 +156,8 @@ company_device_link_id
 
 El backend valida que `company_device_link_id` pertenezca a `company_id`, al `device_id` autenticado y que el vinculo este `ACTIVE`. Los eventos historicos conservan esos IDs aunque el vinculo se revoque despues.
 
+Desde V1 estos campos son obligatorios tambien en la base de datos. La migracion multiempresa asume una base limpia o eventos beta ya migrados con un `company_id` y `company_device_link_id` historico. Si existen eventos legacy sin contexto, se deben exportar, asociar por backfill o purgar antes de ejecutar Alembic en produccion.
+
 La IP publica observada se toma del socket de entrada o de headers de proxy solo si la solicitud llega desde un proxy confiable configurado en:
 
 ```text
