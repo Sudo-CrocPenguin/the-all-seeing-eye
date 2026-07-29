@@ -98,6 +98,27 @@ Respuesta esperada:
 
 Con `HEALTH_REQUIRE_CURRENT_MIGRATION=true`, el health falla si Alembic no esta en `head`.
 
+## Prueba PostgreSQL Local
+
+Para validar migraciones y un smoke test contra PostgreSQL real:
+
+```bash
+docker run --name ase-v1-postgres-test \
+  -e POSTGRES_DB=the_all_seeing_eye_test \
+  -e POSTGRES_USER=audit \
+  -e POSTGRES_PASSWORD=audit_pw \
+  -p 127.0.0.1:55433:5432 \
+  -d postgres:17-alpine
+
+DATABASE_URL=postgresql+psycopg://audit:audit_pw@127.0.0.1:55433/the_all_seeing_eye_test \
+  .venv/bin/alembic upgrade head
+
+POSTGRES_SMOKE_DATABASE_URL=postgresql+psycopg://audit:audit_pw@127.0.0.1:55433/the_all_seeing_eye_test \
+  .venv/bin/pytest tests/test_postgres_smoke.py
+
+docker rm -f ase-v1-postgres-test
+```
+
 ## Logs
 
 Los logs de backend salen por stdout/stderr del contenedor:
