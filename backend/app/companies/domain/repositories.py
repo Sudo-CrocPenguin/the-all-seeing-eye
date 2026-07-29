@@ -95,4 +95,3 @@ class AuditorSessionRepository(Protocol):
 
     def list_active_by_company(self, company_id: str) -> list[AuditorSession]:
         raise NotImplementedError
-

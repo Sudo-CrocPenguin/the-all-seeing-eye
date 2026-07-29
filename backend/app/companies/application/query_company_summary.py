@@ -89,4 +89,3 @@ class QueryCompanySummaryUseCase:
             pending_enrollment_requests=len(pending_requests),
             active_auditor_sessions=len(active_sessions),
         )
-

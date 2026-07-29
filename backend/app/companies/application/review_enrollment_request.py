@@ -82,4 +82,3 @@ class ReviewEnrollmentRequestUseCase:
             linked_at=utc_now(),
         )
         return self._company_device_link_repository.save(link)
-

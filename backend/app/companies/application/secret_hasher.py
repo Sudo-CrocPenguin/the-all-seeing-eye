@@ -36,4 +36,3 @@ class SecretHasher:
     def verify(self, secret: str, *, expected_hash: str, secret_salt: str) -> bool:
         hashed_secret = self.hash_secret(secret, secret_salt)
         return compare_digest(hashed_secret.secret_hash, expected_hash)
-

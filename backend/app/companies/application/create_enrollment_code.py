@@ -53,4 +53,3 @@ class CreateEnrollmentCodeUseCase:
         )
         saved_code = self._enrollment_code_repository.save(enrollment_code)
         return CreatedEnrollmentCode(enrollment_code=saved_code, code=code)
-

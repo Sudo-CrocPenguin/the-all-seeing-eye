@@ -70,4 +70,3 @@ class RequestDeviceEnrollmentUseCase:
             device_fingerprint_snapshot=dict(command.device_fingerprint_snapshot),
         )
         return self._enrollment_request_repository.save(enrollment_request)
-

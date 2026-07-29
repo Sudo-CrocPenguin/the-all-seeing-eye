@@ -24,4 +24,3 @@ class CreateCompanyUseCase:
             created_at=utc_now(),
         )
         return self._repository.save(company)
-

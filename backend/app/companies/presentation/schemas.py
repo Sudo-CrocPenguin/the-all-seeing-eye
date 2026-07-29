@@ -297,4 +297,3 @@ class CompanySummaryResponse(BaseModel):
             pending_enrollment_requests=summary.pending_enrollment_requests,
             active_auditor_sessions=summary.active_auditor_sessions,
         )
-

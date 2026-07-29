@@ -63,4 +63,3 @@ class RequestAuditorAccessUseCase:
             access_request=saved_request,
             verification_code=verification_code if expose_verification_code else None,
         )
-
