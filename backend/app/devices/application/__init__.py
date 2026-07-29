@@ -1,0 +1,2 @@
+"""Device application use cases."""
+

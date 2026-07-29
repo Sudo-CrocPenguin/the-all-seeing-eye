@@ -1,0 +1,55 @@
+[project]
+name = "the-all-seeing-eye"
+version = "1.0.0"
+description = "Backend de auditoria de red para equipos corporativos autorizados."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.16.0",
+  "fastapi>=0.116.0",
+  "psutil>=7.0.0",
+  "psycopg[binary]>=3.2.0",
+  "pydantic-settings>=2.10.0",
+  "sqlalchemy>=2.0.40",
+  "uvicorn[standard]>=0.35.0"
+]
+
+[project.scripts]
+all-seeing-eye-agent = "agent.app.cli:main"
+all-seeing-eye-auditor = "auditor.app.cli:main"
+ase-auditor = "auditor.app.cli:main"
+
+[build-system]
+requires = ["setuptools>=80.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["agent*", "auditor*", "backend*"]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28.0",
+  "mypy>=1.16.0",
+  "pytest>=8.4.0",
+  "ruff>=0.12.0",
+  "types-psutil>=7.0.0"
+]
+windows-service = [
+  "pywin32>=306; platform_system == 'Windows'"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = []

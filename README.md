@@ -4,6 +4,16 @@ The All Seeing Eye es una plataforma de auditoria de red para computadores corpo
 
 El sistema esta pensado para ambientes empresariales donde los empleados son informados de la auditoria y los equipos pertenecen a la compania. No esta disenado para monitoreo oculto, evasion de controles del sistema operativo ni captura no consentida de informacion personal.
 
+## Documentacion Complementaria
+
+- [Contexto forense de la aplicacion](docs/contexto-forense.md)
+- [Beta local de historial forense](docs/beta-local-historial-forense.md)
+- [Piloto controlado 0.1.0 beta](docs/piloto-controlado.md)
+- [Diseno de autenticacion multiempresa por terminal](docs/auth-multiempresa-terminal.md)
+- [CLI de auditor multiempresa](auditor/docs/auditor.md)
+- [Produccion V1](docs/v1-produccion.md)
+- [Smoke test V1](docs/v1-smoke-test.md)
+
 ## Para Que Sirve
 
 - Auditar actividad de red de equipos corporativos Windows y Linux.
@@ -119,7 +129,11 @@ Eventos principales:
 - AGENT_RECOVERED: el agente volvio a reportar despues de una ausencia.
 - AGENT_CONFIG_CHANGED: cambio una configuracion del agente.
 
-El backend debe calcular ventanas de inactividad cuando un agente deje de enviar heartbeats.
+El backend calcula ventanas de inactividad cuando un agente deja de enviar heartbeats. El detector revisa `devices.last_seen_at`, compara contra `AGENT_HEARTBEAT_TIMEOUT_SECONDS` y registra `AGENT_MISSED_HEARTBEAT` cuando el equipo deja de reportar sin un estado que explique la ausencia.
+
+Cuando un agente vuelve a reportar despues de estar marcado como perdido, el backend registra `AGENT_RECOVERED` y actualiza `last_seen_at`.
+
+Cuando el agente detecta cambio de identidad tecnica durante ejecucion, por ejemplo una interfaz nueva o una IP local distinta, registra de nuevo el dispositivo y envia `AGENT_CONFIG_CHANGED`.
 
 Ejemplo:
 
@@ -255,4 +269,60 @@ La plataforma debe implementar controles de proteccion desde el inicio:
 
 ## Estado Actual
 
-El proyecto se encuentra en etapa de definicion e inicio de MVP.
+El proyecto se encuentra en preparacion de release V1. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. Las consultas de eventos de auditoria requieren sesion temporal de auditor por empresa. El backend actualiza `last_seen_at` cuando recibe senales validas de agentes autenticados, detecta heartbeats perdidos por vinculo activo, registra recuperaciones y expone una consulta de ventana forense por rango o marca exacta de tiempo.
+
+El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes enriquecidas con usuario local, PID, proceso, ejecutable y mapa local de servicios, adjuntar `company_id` y `company_device_link_id` desde estado local multiempresa, guardar eventos pendientes en cola local cuando el backend no responde y desplegarse como servicio administrado en Linux/Windows.
+
+El CLI de auditor permite crear empresas, solicitar y verificar sesiones temporales, generar codigos de vinculacion, revisar solicitudes, consultar resumen/historial y exportar evidencia JSON por empresa y rango de fechas sin depender de Swagger.
+
+V1 exige que los eventos pertenezcan a dispositivos registrados y a vinculos activos de empresa, no encola errores fatales del backend, conserva orden causal en la cola local y acepta IP publica desde headers de proxy solo cuando el proxy esta declarado en `TRUSTED_PROXY_IPS`. El `public_ip` del JSON del agente no se usa como evidencia.
+
+La version `1.0.0` queda orientada a despliegue V1 con PostgreSQL, HTTPS/reverse proxy, proveedor SMS real, secretos fuertes, `/docs` desactivado en produccion y healthcheck bloqueante si Alembic no esta en `head`.
+
+## Despliegue Del Agente Como Servicio
+
+El agente esta preparado para ejecutarse en segundo plano como servicio corporativo visible y administrable por IT. Esta capacidad sirve para que el proceso arranque con el sistema operativo, se reinicie ante fallos y registre eventos de apagado/encendido cuando el servicio se detiene de forma controlada.
+
+En Linux se usa systemd:
+
+```bash
+sudo agent/deploy/linux/install-systemd.sh
+sudo systemctl status all-seeing-eye-agent
+sudo systemctl stop all-seeing-eye-agent
+sudo systemctl start all-seeing-eye-agent
+```
+
+La configuracion queda en:
+
+```text
+/etc/the-all-seeing-eye/agent.env
+```
+
+En Windows se usa Windows Service con `pywin32`:
+
+```powershell
+.\agent\deploy\windows\install-service.ps1 -BackendUrl "https://audit.empresa.local" -AgentToken "token"
+Get-Service -Name AllSeeingEyeAgent
+Stop-Service -Name AllSeeingEyeAgent
+Start-Service -Name AllSeeingEyeAgent
+```
+
+Para laboratorio con HTTP hacia LAN/VPN se debe configurar `AGENT_ALLOW_INSECURE_TRANSPORT=true` y documentar el riesgo. El agente solo permite HTTP por defecto contra `127.0.0.1` o `localhost`.
+
+La configuracion queda en:
+
+```text
+C:\ProgramData\TheAllSeeingEye\agent.env
+```
+
+Cuando el servicio se detiene con `systemctl stop`, `Stop-Service` o la consola de servicios de Windows, el agente envia `AGENT_STOPPING` y `AGENT_STOPPED`. Cuando vuelve a iniciar envia `AGENT_STARTED`. Si el proceso es terminado de forma forzada o el equipo pierde red/energia, el backend debe detectar la ventana sin reporte mediante heartbeats ausentes.
+
+## Documentacion Tecnica
+
+- [Contexto forense de la aplicacion](docs/contexto-forense.md)
+- [Backend de auditoria](backend/docs/backend.md)
+- [Agente MVP de auditoria](agent/docs/agent.md)
+- [CLI de auditor multiempresa](auditor/docs/auditor.md)
+- [Piloto controlado 0.1.0 beta](docs/piloto-controlado.md)
+- [Produccion V1](docs/v1-produccion.md)
+- [Smoke test V1](docs/v1-smoke-test.md)
