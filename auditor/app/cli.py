@@ -71,6 +71,39 @@ class AuditorCliApiClient(Protocol):
     ) -> dict[str, Any]:
         raise NotImplementedError
 
+    def search_network_events(
+        self,
+        *,
+        auditor_session_id: str,
+        filters: dict[str, object | None],
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def search_lifecycle_events(
+        self,
+        *,
+        auditor_session_id: str,
+        filters: dict[str, object | None],
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def search_device_movements(
+        self,
+        *,
+        auditor_session_id: str,
+        device_id: str,
+        filters: dict[str, object | None],
+    ) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def query_incident_window(
+        self,
+        *,
+        auditor_session_id: str,
+        filters: dict[str, object | None],
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CLI de auditoria multiempresa.")
@@ -167,7 +200,71 @@ def build_parser() -> argparse.ArgumentParser:
 
     summary_parser = subparsers.add_parser("summary", help="Muestra resumen de empresa.")
     summary_parser.add_argument("--company", help="company_id.")
+
+    history_parser = subparsers.add_parser("history", help="Consulta historial de auditoria.")
+    history_subparsers = history_parser.add_subparsers(dest="history_command", required=True)
+
+    network_history_parser = history_subparsers.add_parser(
+        "network",
+        help="Consulta eventos de red.",
+    )
+    _add_company_option(network_history_parser)
+    _add_range_options(network_history_parser)
+    _add_limit_option(network_history_parser, default=100)
+    network_history_parser.add_argument("--device-id", help="Filtro por dispositivo.")
+    network_history_parser.add_argument("--local-ip", help="Filtro por IP local.")
+    network_history_parser.add_argument("--public-ip", help="Filtro por IP publica.")
+    network_history_parser.add_argument("--destination-host", help="Filtro por host destino.")
+    network_history_parser.add_argument("--destination-ip", help="Filtro por IP destino.")
+    network_history_parser.add_argument("--protocol", help="Filtro por protocolo.")
+
+    lifecycle_history_parser = history_subparsers.add_parser(
+        "lifecycle",
+        help="Consulta eventos de ciclo de vida.",
+    )
+    _add_company_option(lifecycle_history_parser)
+    _add_range_options(lifecycle_history_parser)
+    _add_limit_option(lifecycle_history_parser, default=100)
+    lifecycle_history_parser.add_argument("--device-id", help="Filtro por dispositivo.")
+    lifecycle_history_parser.add_argument("--event-type", help="Filtro por tipo de evento.")
+
+    movements_history_parser = history_subparsers.add_parser(
+        "movements",
+        help="Consulta movimientos de un dispositivo.",
+    )
+    _add_company_option(movements_history_parser)
+    _add_range_options(movements_history_parser)
+    _add_limit_option(movements_history_parser, default=100)
+    movements_history_parser.add_argument("--device-id", required=True, help="device_id.")
+
+    incident_window_parser = history_subparsers.add_parser(
+        "incident-window",
+        help="Consulta una ventana forense.",
+    )
+    _add_company_option(incident_window_parser)
+    _add_range_options(incident_window_parser)
+    incident_window_parser.add_argument("--at", help="Marca central de incidente ISO-8601.")
+    incident_window_parser.add_argument(
+        "--window-seconds",
+        type=int,
+        default=900,
+        help="Tamano de ventana si se usa --at.",
+    )
+    _add_limit_option(incident_window_parser, default=500)
     return parser
+
+
+def _add_company_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--company", help="company_id.")
+
+
+def _add_range_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--from", dest="from_datetime", help="Fecha inicial ISO-8601.")
+    parser.add_argument("--to", dest="to_datetime", help="Fecha final ISO-8601.")
+
+
+def _add_limit_option(parser: argparse.ArgumentParser, *, default: int) -> None:
+    parser.add_argument("--limit", type=int, default=default, help="Maximo de registros.")
 
 
 def _add_runtime_options(parser: argparse.ArgumentParser) -> None:
@@ -211,6 +308,9 @@ def main() -> None:
             return
         if args.command == "summary":
             _print_summary(settings, args.company)
+            return
+        if args.command == "history":
+            _print_history(settings, args)
             return
         parser.error("Comando no soportado")
     except (AuditorStateError, AuditorTransportError, ValueError) as exc:
@@ -362,6 +462,128 @@ def _print_summary(settings: AuditorSettings, company_id: str | None) -> None:
     print(f"Without report: {summary.get('without_report_devices', 0)}")
     print(f"Pending enrollment requests: {summary.get('pending_enrollment_requests', 0)}")
     print(f"Active auditor sessions: {summary.get('active_auditor_sessions', 0)}")
+
+
+def _print_history(settings: AuditorSettings, args: argparse.Namespace) -> None:
+    if args.history_command == "network":
+        _print_network_history(settings, args)
+        return
+    if args.history_command == "lifecycle":
+        _print_lifecycle_history(settings, args)
+        return
+    if args.history_command == "movements":
+        _print_device_movements_history(settings, args)
+        return
+    if args.history_command == "incident-window":
+        _print_incident_window(settings, args)
+        return
+    raise AuditorStateError("Comando history no soportado")
+
+
+def _print_network_history(settings: AuditorSettings, args: argparse.Namespace) -> None:
+    session = _load_required_session(settings, args.company)
+    events = _build_auditor_api_client(settings).search_network_events(
+        auditor_session_id=session.auditor_session_id,
+        filters={
+            "device_id": args.device_id,
+            "local_ip": args.local_ip,
+            "public_ip": args.public_ip,
+            "destination_host": args.destination_host,
+            "destination_ip": args.destination_ip,
+            "protocol": args.protocol,
+            "from": args.from_datetime,
+            "to": args.to_datetime,
+            "limit": args.limit,
+        },
+    )
+    if not events:
+        print("No hay eventos de red")
+        return
+    for event in events:
+        destination = event.get("destination_host") or event.get("destination_ip") or ""
+        destination_port = event.get("destination_port")
+        if destination_port:
+            destination = f"{destination}:{destination_port}"
+        print(
+            f"{event.get('occurred_at', '')} "
+            f"device={event.get('device_id', '')} "
+            f"protocol={event.get('protocol', '')} "
+            f"destination={destination} "
+            f"local_ip={event.get('local_ip', '')} "
+            f"public_ip={event.get('public_ip', '')}",
+        )
+
+
+def _print_lifecycle_history(settings: AuditorSettings, args: argparse.Namespace) -> None:
+    session = _load_required_session(settings, args.company)
+    events = _build_auditor_api_client(settings).search_lifecycle_events(
+        auditor_session_id=session.auditor_session_id,
+        filters={
+            "device_id": args.device_id,
+            "event_type": args.event_type,
+            "from": args.from_datetime,
+            "to": args.to_datetime,
+            "limit": args.limit,
+        },
+    )
+    if not events:
+        print("No hay eventos lifecycle")
+        return
+    for event in events:
+        print(
+            f"{event.get('occurred_at', '')} "
+            f"device={event.get('device_id', '')} "
+            f"type={event.get('event_type', '')} "
+            f"reason={event.get('reason', '')}",
+        )
+
+
+def _print_device_movements_history(settings: AuditorSettings, args: argparse.Namespace) -> None:
+    session = _load_required_session(settings, args.company)
+    movements = _build_auditor_api_client(settings).search_device_movements(
+        auditor_session_id=session.auditor_session_id,
+        device_id=args.device_id,
+        filters={
+            "from": args.from_datetime,
+            "to": args.to_datetime,
+            "limit": args.limit,
+        },
+    )
+    if not movements:
+        print("No hay movimientos del dispositivo")
+        return
+    for movement in movements:
+        print(
+            f"{movement.get('occurred_at', '')} "
+            f"device={movement.get('device_id', args.device_id)} "
+            f"local_ip={movement.get('local_ip', '')} "
+            f"public_ip={movement.get('public_ip', '')} "
+            f"hostname={movement.get('hostname', '')}",
+        )
+
+
+def _print_incident_window(settings: AuditorSettings, args: argparse.Namespace) -> None:
+    session = _load_required_session(settings, args.company)
+    window = _build_auditor_api_client(settings).query_incident_window(
+        auditor_session_id=session.auditor_session_id,
+        filters={
+            "from": args.from_datetime,
+            "to": args.to_datetime,
+            "at": args.at,
+            "window_seconds": args.window_seconds,
+            "limit": args.limit,
+        },
+    )
+    print(f"Window: {window.get('from_datetime', '')} -> {window.get('to_datetime', '')}")
+    print(f"Active devices: {len(_list_value(window.get('active_devices')))}")
+    print(f"Without report: {len(_list_value(window.get('devices_without_report')))}")
+    print(f"Seen after window: {len(_list_value(window.get('devices_seen_after_window')))}")
+    print(f"Network events: {len(_list_value(window.get('network_events')))}")
+    print(f"Lifecycle events: {len(_list_value(window.get('lifecycle_events')))}")
+
+
+def _list_value(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
 
 
 def _print_session_saved(session: AuditorSessionState) -> None:
