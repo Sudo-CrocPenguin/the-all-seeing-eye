@@ -16,6 +16,7 @@ from agent.app.local_queue import LocalAgentRequestQueue, QueuedAuditApiClient, 
 from agent.app.network_collector import NetworkConnectionCollector, ObservedNetworkConnection
 from agent.app.runner import AgentConfigurationError, AgentRunner
 from agent.app.service_map import ServiceMap, ServiceMapEntry
+from agent.app.state import AgentState, AgentStateError, JsonAgentStateStore, LinkedCompanyState
 from agent.app.transport import AgentTransportError, AuditApiClient, InsecureBackendUrlError
 from agent.app.windows_service import (
     WINDOWS_SERVICE_DESCRIPTION,
@@ -35,6 +36,7 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     monkeypatch.setenv("AGENT_HEARTBEAT_INTERVAL_SECONDS", "30")
     monkeypatch.setenv("AGENT_SCAN_INTERVAL_SECONDS", "5")
     monkeypatch.setenv("AGENT_REQUEST_RETRY_BACKOFF_SECONDS", "7")
+    monkeypatch.setenv("AGENT_STATE_FILE", "/tmp/the-all-seeing-eye-agent-state.json")
     monkeypatch.setenv("AGENT_QUEUE_FILE", "/tmp/the-all-seeing-eye-agent-queue.jsonl")
     monkeypatch.setenv("AGENT_SERVICE_MAP_FILE", "/tmp/the-all-seeing-eye-service-map.json")
     monkeypatch.setenv("AGENT_REVERSE_DNS_ENABLED", "false")
@@ -51,6 +53,7 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     assert settings.heartbeat_interval_seconds == 30
     assert settings.scan_interval_seconds == 5
     assert settings.request_retry_backoff_seconds == 7
+    assert str(settings.state_file) == "/tmp/the-all-seeing-eye-agent-state.json"
     assert str(settings.queue_file) == "/tmp/the-all-seeing-eye-agent-queue.jsonl"
     assert str(settings.service_map_file) == "/tmp/the-all-seeing-eye-service-map.json"
     assert not settings.reverse_dns_enabled
@@ -124,6 +127,51 @@ def test_environment_variables_override_env_file(tmp_path: Any, monkeypatch: Any
     settings = AgentSettings.from_environment(env_file)
 
     assert settings.backend_url == "http://env.local:8000"
+
+
+def test_agent_state_store_loads_empty_state_when_file_is_missing(tmp_path: Any) -> None:
+    state = JsonAgentStateStore(tmp_path / "agent-state.json").load()
+
+    assert state == AgentState()
+
+
+def test_agent_state_store_persists_active_company(tmp_path: Any) -> None:
+    state_file = tmp_path / "state" / "agent-state.json"
+    store = JsonAgentStateStore(state_file)
+    state = AgentState(device_id="device-1", recording_enabled=True).upsert_link(
+        LinkedCompanyState(
+            company_id="company-1",
+            company_device_link_id="link-1",
+            company_name="Acme",
+            linked_at="2026-07-29T10:00:00Z",
+        ),
+    )
+
+    saved_state = store.save(state.select_company("company-1"))
+
+    loaded_state = store.load()
+    assert loaded_state == saved_state
+    assert loaded_state.active_company is not None
+    assert loaded_state.active_company.company_name == "Acme"
+
+
+def test_agent_state_rejects_unknown_active_company() -> None:
+    state = AgentState().upsert_link(
+        LinkedCompanyState(
+            company_id="company-1",
+            company_device_link_id="link-1",
+            company_name="Acme",
+            status="REVOKED",
+            revoked_at="2026-07-29T10:00:00Z",
+        ),
+    )
+
+    try:
+        state.select_company("company-1")
+    except AgentStateError as exc:
+        assert "no esta vinculada" in str(exc)
+    else:
+        raise AssertionError("No debe seleccionar una empresa revocada")
 
 
 def test_parse_environment_lines_rejects_invalid_variable() -> None:
