@@ -99,7 +99,6 @@ def build_audit_export(
                 "company_id": session.company_id,
             },
             "auditor_session": {
-                "auditor_session_id": session.auditor_session_id,
                 "device_id": session.device_id,
                 "expires_at": session.expires_at,
                 "scopes": list(session.scopes),

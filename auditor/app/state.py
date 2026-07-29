@@ -88,6 +88,7 @@ class JsonAuditorSessionStore:
             json.dumps(session.to_json(), indent=2, sort_keys=True),
             encoding="utf-8",
         )
+        temporary_file.chmod(0o600)
         temporary_file.replace(self._session_file)
         return session
 

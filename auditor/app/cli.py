@@ -617,6 +617,7 @@ def _export_json(settings: AuditorSettings, args: argparse.Namespace) -> None:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(f"{serialized_export}\n", encoding="utf-8")
+        output_path.chmod(0o600)
         network_events = _list_value(export_payload["events"].get("network_events"))
         lifecycle_events = _list_value(export_payload["events"].get("lifecycle_events"))
         device_movements = _list_value(export_payload["events"].get("device_movements"))

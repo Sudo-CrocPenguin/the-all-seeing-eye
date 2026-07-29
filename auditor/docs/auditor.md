@@ -49,6 +49,8 @@ AUDITOR_ALLOW_INSECURE_TRANSPORT=false
 ~/.local/state/the-all-seeing-eye/auditor-session.json
 ```
 
+El archivo se escribe con permisos privados `0600` en sistemas POSIX.
+
 HTTP solo se permite por defecto hacia `127.0.0.1` o `localhost`. Para laboratorio con una IP LAN/VPN, usar `AUDITOR_ALLOW_INSECURE_TRANSPORT=true`. Para despliegue real, usar HTTPS.
 
 ## Flujo Operativo
@@ -178,6 +180,8 @@ Formato base:
 ```
 
 La exportacion conserva los `company_id` y `company_device_link_id` historicos de cada evento. Si un dispositivo se desvincula despues, el historial previo sigue exportable por auditores autorizados de esa empresa.
+
+El JSON no incluye `auditor_session_id` porque ese valor funciona como credencial temporal.
 
 ## Controles Y Limites
 

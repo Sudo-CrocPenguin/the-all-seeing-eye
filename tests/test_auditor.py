@@ -1,4 +1,5 @@
 import json
+import stat
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -70,6 +71,7 @@ def test_auditor_session_store_roundtrip(tmp_path: Any) -> None:
     assert loaded_session == session
     assert not session.is_expired(datetime(2026, 7, 29, 21, 0, tzinfo=UTC))
     assert session.is_expired(datetime(2026, 7, 29, 22, 1, tzinfo=UTC))
+    assert stat.S_IMODE(session_file.stat().st_mode) == 0o600
 
 
 def test_cli_company_create_calls_backend(
@@ -402,6 +404,7 @@ def test_build_audit_export_includes_metadata_and_company_filtered_events() -> N
     assert export_payload["format_version"] == "audit-export/v1"
     assert export_payload["metadata"]["company"]["company_id"] == "company-1"
     assert export_payload["metadata"]["filters"]["device_id"] == "device-1"
+    assert "auditor_session_id" not in export_payload["metadata"]["auditor_session"]
     assert export_payload["events"]["network_events"][0]["company_id"] == "company-1"
     assert export_payload["events"]["lifecycle_events"][0]["company_id"] == "company-1"
     assert export_payload["events"]["device_movements"][0]["company_id"] == "company-1"
@@ -441,6 +444,7 @@ def test_cli_export_json_writes_file(
     output = capsys.readouterr().out
     exported_payload = json.loads(export_file.read_text(encoding="utf-8"))
     assert "Export JSON:" in output
+    assert stat.S_IMODE(export_file.stat().st_mode) == 0o600
     assert exported_payload["metadata"]["company"]["company_id"] == "company-1"
     assert exported_payload["metadata"]["filters"]["from"] == "2026-07-29T10:00:00+00:00"
     assert exported_payload["events"]["network_events"][0]["company_id"] == "company-1"
