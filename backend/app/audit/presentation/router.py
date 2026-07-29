@@ -25,6 +25,10 @@ from backend.app.audit.application.record_agent_activity import (
     RecordAgentActivityCommand,
     RecordAgentActivityUseCase,
 )
+from backend.app.audit.application.resolve_audit_company_context import (
+    ResolveAuditCompanyContextCommand,
+    ResolveAuditCompanyContextUseCase,
+)
 from backend.app.audit.domain.repositories import (
     AgentLifecycleEventFilters,
     NetworkAuditEventFilters,
@@ -43,7 +47,7 @@ from backend.app.shared.container import AppContainer
 from backend.app.shared.dependencies import get_container
 from backend.app.shared.security import (
     require_agent_token,
-    require_auditor_token,
+    require_auditor_session,
     require_provisioning_token,
 )
 
@@ -147,6 +151,10 @@ def _record_agent_activity(
     use_case.execute(command)
 
 
+def _build_company_context_resolver(container: AppContainer) -> ResolveAuditCompanyContextUseCase:
+    return ResolveAuditCompanyContextUseCase(container.company_device_link_repository)
+
+
 def _resolve_incident_window(
     *,
     from_datetime: datetime | None,
@@ -196,7 +204,10 @@ async def ingest_network_event(
     if registered_device is None:
         raise RuntimeError("El dispositivo registrado es obligatorio para eventos de red")
     observed_public_ip = _observed_public_ip(request, request.app.state.container.settings)
-    use_case = IngestNetworkAuditEventUseCase(container.network_event_repository)
+    use_case = IngestNetworkAuditEventUseCase(
+        container.network_event_repository,
+        _build_company_context_resolver(container),
+    )
     command = replace(
         payload.to_command(observed_public_ip),
         hostname=registered_device.hostname,
@@ -208,6 +219,8 @@ async def ingest_network_event(
         container,
         RecordAgentActivityCommand(
             device_id=payload.device_id,
+            company_id=event.company_id,
+            company_device_link_id=event.company_device_link_id,
             hostname=registered_device.hostname,
             agent_version=registered_device.agent_version,
             local_ip=payload.local_ip,
@@ -231,8 +244,14 @@ async def search_network_events(
     to_datetime: ToDateTimeQuery = None,
     limit: LimitQuery = 100,
 ) -> list[NetworkAuditEventResponse]:
-    require_auditor_token(request, request.app.state.container.settings)
+    auditor_session = require_auditor_session(
+        request,
+        request.app.state.container.settings,
+        container,
+        required_scope="audit:read",
+    )
     filters = NetworkAuditEventFilters(
+        company_id=auditor_session.company_id,
         device_id=device_id,
         local_ip=local_ip,
         public_ip=public_ip,
@@ -256,13 +275,19 @@ async def search_device_movements(
     to_datetime: ToDateTimeQuery = None,
     limit: LimitQuery = 100,
 ) -> list[DeviceMovementResponse]:
-    require_auditor_token(request, request.app.state.container.settings)
+    auditor_session = require_auditor_session(
+        request,
+        request.app.state.container.settings,
+        container,
+        required_scope="audit:read",
+    )
     use_case = QueryDeviceMovementsUseCase(
         container.network_event_repository,
         container.lifecycle_event_repository,
     )
     movements = use_case.execute(
         QueryDeviceMovementsCommand(
+            company_id=auditor_session.company_id,
             device_id=device_id,
             from_datetime=from_datetime,
             to_datetime=to_datetime,
@@ -282,7 +307,12 @@ async def query_incident_window(
     window_seconds: WindowSecondsQuery = 900,
     limit: LimitQuery = 500,
 ) -> IncidentWindowResponse:
-    require_auditor_token(request, request.app.state.container.settings)
+    auditor_session = require_auditor_session(
+        request,
+        request.app.state.container.settings,
+        container,
+        required_scope="audit:read",
+    )
     resolved_from_datetime, resolved_to_datetime = _resolve_incident_window(
         from_datetime=from_datetime,
         to_datetime=to_datetime,
@@ -293,9 +323,11 @@ async def query_incident_window(
         container.device_repository,
         container.network_event_repository,
         container.lifecycle_event_repository,
+        container.company_device_link_repository,
     )
     result = use_case.execute(
         QueryIncidentWindowCommand(
+            company_id=auditor_session.company_id,
             from_datetime=resolved_from_datetime,
             to_datetime=resolved_to_datetime,
             limit=limit,
@@ -324,11 +356,21 @@ async def ingest_lifecycle_event(
     if registered_device is None:
         raise RuntimeError("El dispositivo registrado es obligatorio para lifecycle")
     observed_public_ip = _observed_public_ip(request, request.app.state.container.settings)
+    company_context_resolver = _build_company_context_resolver(container)
+    company_context_resolver.execute(
+        ResolveAuditCompanyContextCommand(
+            company_id=payload.company_id,
+            company_device_link_id=payload.company_device_link_id,
+            device_id=payload.device_id,
+        ),
+    )
     if payload.event_type in _LIFECYCLE_EVENTS_THAT_MARK_DEVICE_SEEN:
         _record_agent_activity(
             container,
             RecordAgentActivityCommand(
                 device_id=payload.device_id,
+                company_id=payload.company_id,
+                company_device_link_id=payload.company_device_link_id,
                 hostname=registered_device.hostname,
                 agent_version=registered_device.agent_version,
                 local_ip=payload.local_ip,
@@ -337,7 +379,10 @@ async def ingest_lifecycle_event(
             ),
         )
 
-    use_case = IngestAgentLifecycleEventUseCase(container.lifecycle_event_repository)
+    use_case = IngestAgentLifecycleEventUseCase(
+        container.lifecycle_event_repository,
+        company_context_resolver,
+    )
     command = replace(
         payload.to_command(observed_public_ip),
         hostname=registered_device.hostname,
@@ -359,6 +404,7 @@ async def detect_missed_heartbeats(
     use_case = DetectMissedHeartbeatsUseCase(
         container.device_repository,
         container.lifecycle_event_repository,
+        container.company_device_link_repository,
     )
     events = use_case.execute(
         DetectMissedHeartbeatsCommand(
@@ -378,8 +424,14 @@ async def search_lifecycle_events(
     to_datetime: ToDateTimeQuery = None,
     limit: LimitQuery = 100,
 ) -> list[AgentLifecycleEventResponse]:
-    require_auditor_token(request, request.app.state.container.settings)
+    auditor_session = require_auditor_session(
+        request,
+        request.app.state.container.settings,
+        container,
+        required_scope="audit:read",
+    )
     filters = AgentLifecycleEventFilters(
+        company_id=auditor_session.company_id,
         device_id=device_id,
         event_type=event_type,
         from_datetime=from_datetime,

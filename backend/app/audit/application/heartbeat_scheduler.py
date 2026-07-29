@@ -16,6 +16,7 @@ def detect_missed_heartbeats_once(runtime_container: RuntimeContainer) -> int:
         use_case = DetectMissedHeartbeatsUseCase(
             app_container.device_repository,
             app_container.lifecycle_event_repository,
+            app_container.company_device_link_repository,
         )
         events = use_case.execute(
             DetectMissedHeartbeatsCommand(
@@ -33,6 +34,7 @@ def detect_missed_heartbeats_once(runtime_container: RuntimeContainer) -> int:
             use_case = DetectMissedHeartbeatsUseCase(
                 app_container.device_repository,
                 app_container.lifecycle_event_repository,
+                app_container.company_device_link_repository,
             )
             events = use_case.execute(
                 DetectMissedHeartbeatsCommand(
