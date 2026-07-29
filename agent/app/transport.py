@@ -39,12 +39,16 @@ def build_lifecycle_event_payload(
     event_type: str,
     occurred_at: str,
     *,
+    company_id: str,
+    company_device_link_id: str,
     reason: str | None = None,
 ) -> dict[str, Any]:
     return {
         "event_type": event_type,
         "occurred_at": occurred_at,
         "device_id": identity.device_id,
+        "company_id": company_id,
+        "company_device_link_id": company_device_link_id,
         "hostname": identity.hostname,
         "agent_version": identity.agent_version,
         "local_ip": identity.primary_local_ip,
@@ -80,6 +84,8 @@ class AuditApiClient:
         event_type: str,
         occurred_at: str,
         *,
+        company_id: str,
+        company_device_link_id: str,
         reason: str | None = None,
     ) -> dict[str, Any]:
         return self.post_json(
@@ -88,6 +94,8 @@ class AuditApiClient:
                 identity,
                 event_type,
                 occurred_at,
+                company_id=company_id,
+                company_device_link_id=company_device_link_id,
                 reason=reason,
             ),
         )

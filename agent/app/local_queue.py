@@ -133,6 +133,8 @@ class QueuedAuditApiClient:
         event_type: str,
         occurred_at: str,
         *,
+        company_id: str,
+        company_device_link_id: str,
         reason: str | None = None,
     ) -> dict[str, Any]:
         return self._post_or_queue(
@@ -142,6 +144,8 @@ class QueuedAuditApiClient:
                     identity,
                     event_type,
                     occurred_at,
+                    company_id=company_id,
+                    company_device_link_id=company_device_link_id,
                     reason=reason,
                 ),
             ),

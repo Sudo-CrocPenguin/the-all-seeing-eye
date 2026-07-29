@@ -24,6 +24,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Identificador estable del dispositivo. Si se omite, se genera desde el equipo.",
     )
     parser.add_argument(
+        "--company-id",
+        help="Empresa activa donde se registraran los eventos de auditoria.",
+    )
+    parser.add_argument(
+        "--company-device-link-id",
+        help="Vinculo activo empresa-dispositivo para los eventos de auditoria.",
+    )
+    parser.add_argument(
         "--heartbeat-interval",
         type=int,
         help="Intervalo en segundos entre heartbeats.",
@@ -53,6 +61,8 @@ def main() -> None:
     settings = AgentSettings(
         backend_url=(args.backend_url or settings.backend_url).rstrip("/"),
         device_id=args.device_id or settings.device_id,
+        company_id=args.company_id or settings.company_id,
+        company_device_link_id=args.company_device_link_id or settings.company_device_link_id,
         agent_token=settings.agent_token,
         agent_token_header=settings.agent_token_header,
         heartbeat_interval_seconds=args.heartbeat_interval or settings.heartbeat_interval_seconds,

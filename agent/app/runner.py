@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from signal import SIGINT, SIGTERM, signal
 from threading import Event
@@ -16,6 +17,12 @@ from agent.app.transport import AuditApiClient, InsecureBackendUrlError
 
 class AgentConfigurationError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class AuditCompanyContext:
+    company_id: str
+    company_device_link_id: str
 
 
 class IdentityCollector(Protocol):
@@ -38,6 +45,8 @@ class AgentApiClient(Protocol):
         event_type: str,
         occurred_at: str,
         *,
+        company_id: str,
+        company_device_link_id: str,
         reason: str | None = None,
     ) -> dict[str, Any]:
         raise NotImplementedError
@@ -168,18 +177,39 @@ class AgentRunner:
         *,
         reason: str | None = None,
     ) -> None:
+        context = self._require_audit_company_context()
         self._api_client.send_lifecycle_event(
             identity,
             event_type,
             to_iso(utc_now()),
+            company_id=context.company_id,
+            company_device_link_id=context.company_device_link_id,
             reason=reason,
         )
 
     def _collect_and_send_network_events(self, identity: DeviceIdentity) -> None:
+        context = self._require_audit_company_context()
         for connection in self._network_collector.collect(identity):
             if self._should_send_network_event(connection):
-                self._api_client.send_network_event(connection.to_backend_payload(identity))
+                self._api_client.send_network_event(
+                    connection.to_backend_payload(
+                        identity,
+                        company_id=context.company_id,
+                        company_device_link_id=context.company_device_link_id,
+                    ),
+                )
                 self._last_sent_network_events[connection.signature] = connection.occurred_at
+
+    def _require_audit_company_context(self) -> AuditCompanyContext:
+        if not self._settings.company_id or not self._settings.company_device_link_id:
+            raise AgentConfigurationError(
+                "AGENT_COMPANY_ID y AGENT_COMPANY_DEVICE_LINK_ID son obligatorios "
+                "para reportar eventos de auditoria",
+            )
+        return AuditCompanyContext(
+            company_id=self._settings.company_id,
+            company_device_link_id=self._settings.company_device_link_id,
+        )
 
     def _should_send_network_event(self, connection: ObservedNetworkConnection) -> bool:
         last_sent_at = self._last_sent_network_events.get(connection.signature)

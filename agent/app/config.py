@@ -38,6 +38,8 @@ def _get_path(name: str) -> Path | None:
 class AgentSettings:
     backend_url: str = "http://127.0.0.1:8000"
     device_id: str | None = None
+    company_id: str | None = None
+    company_device_link_id: str | None = None
     agent_token: str | None = None
     agent_token_header: str = "X-Agent-Token"
     heartbeat_interval_seconds: int = 60
@@ -60,6 +62,10 @@ class AgentSettings:
         return cls(
             backend_url=getenv("AGENT_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/"),
             device_id=device_id,
+            company_id=_normalize_optional_text(getenv("AGENT_COMPANY_ID")),
+            company_device_link_id=_normalize_optional_text(
+                getenv("AGENT_COMPANY_DEVICE_LINK_ID"),
+            ),
             agent_token=_normalize_optional_text(getenv("AGENT_TOKEN")),
             agent_token_header=getenv("AGENT_TOKEN_HEADER", "X-Agent-Token"),
             heartbeat_interval_seconds=_get_int("AGENT_HEARTBEAT_INTERVAL_SECONDS", 60),
