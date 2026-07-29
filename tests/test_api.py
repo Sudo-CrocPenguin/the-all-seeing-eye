@@ -1202,6 +1202,43 @@ async def test_agent_revokes_own_company_link_without_deleting_history() -> None
 
 
 @pytest.mark.anyio
+async def test_agent_cannot_revoke_link_for_another_device() -> None:
+    transport = httpx.ASGITransport(app=create_test_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        first_agent_token = await provision_agent_token(client, device_id="device-1")
+        second_agent_token = await provision_agent_token(client, device_id="device-2")
+        await register_test_device(
+            client,
+            agent_token=first_agent_token,
+            device_id="device-1",
+        )
+        await register_test_device(
+            client,
+            agent_token=second_agent_token,
+            device_id="device-2",
+            hostname="DEV-LAPTOP-002",
+        )
+        second_context = await link_device_to_company(
+            client,
+            device_id="device-2",
+            agent_token=second_agent_token,
+            company_name="Empresa B",
+        )
+
+        response = await client.post(
+            (
+                "/api/v1/companies/device-links/"
+                f"{second_context.company_device_link_id}/revoke"
+            ),
+            headers={"X-Agent-Token": first_agent_token},
+            json={"device_id": "device-1"},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "El vinculo no pertenece a este dispositivo"
+
+
+@pytest.mark.anyio
 async def test_query_incident_window_accepts_exact_timestamp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

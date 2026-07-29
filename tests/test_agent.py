@@ -248,6 +248,52 @@ def test_cli_use_company_selects_active_company_and_reports_change(
     ]
 
 
+def test_cli_start_recording_enables_state_and_reports_change(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    state_file = tmp_path / "agent-state.json"
+    JsonAgentStateStore(state_file).save(
+        AgentState(
+            device_id="device-1",
+            recording_enabled=False,
+            active_company_id="company-1",
+            active_company_device_link_id="link-1",
+            linked_companies=(
+                LinkedCompanyState(
+                    company_id="company-1",
+                    company_device_link_id="link-1",
+                    company_name="Acme",
+                ),
+            ),
+        ),
+    )
+    fake_client = FakeCliApiClient()
+    monkeypatch.setenv("AGENT_TOKEN", "agent-token")
+    monkeypatch.setattr(
+        agent_cli,
+        "DeviceIdentityCollector",
+        lambda _settings: FakeIdentityCollector(identity),
+    )
+    monkeypatch.setattr(agent_cli, "_build_agent_api_client", lambda _settings: fake_client)
+    monkeypatch.setattr(sys, "argv", ["agent", "--state-file", str(state_file), "start-recording"])
+
+    agent_cli.main()
+
+    state = JsonAgentStateStore(state_file).load()
+    assert state.recording_enabled
+    assert fake_client.lifecycle_events == [
+        ("AGENT_CONFIG_CHANGED", "company-1", "recording enabled by local user"),
+    ]
+
+
 def test_cli_stop_recording_sends_lifecycle_before_disabling(
     tmp_path: Any,
     monkeypatch: Any,
@@ -1138,6 +1184,40 @@ def test_queued_client_queues_revoke_link_when_backend_fails(tmp_path: Any) -> N
     assert len(queued_requests) == 1
     assert queued_requests[0].path == "/api/v1/companies/device-links/link-1/revoke"
     assert queued_requests[0].payload == {"device_id": "device-1"}
+
+
+def test_queued_client_preserves_company_context_per_offline_event(tmp_path: Any) -> None:
+    queue_file = tmp_path / "agent-queue.jsonl"
+    client = QueuedAuditApiClient(
+        FailingPostJsonClient(),
+        LocalAgentRequestQueue(queue_file),
+        retry_backoff_seconds=30,
+    )
+
+    client.send_network_event(
+        {
+            "device_id": "device-1",
+            "company_id": "company-a",
+            "company_device_link_id": "link-a",
+        },
+    )
+    client.send_network_event(
+        {
+            "device_id": "device-1",
+            "company_id": "company-b",
+            "company_device_link_id": "link-b",
+        },
+    )
+
+    queued_requests = LocalAgentRequestQueue(queue_file).read_all()
+    assert [request.payload["company_id"] for request in queued_requests] == [
+        "company-a",
+        "company-b",
+    ]
+    assert [request.payload["company_device_link_id"] for request in queued_requests] == [
+        "link-a",
+        "link-b",
+    ]
 
 
 def test_queued_client_queues_current_request_when_pending_flush_is_blocked(
