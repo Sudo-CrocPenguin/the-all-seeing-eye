@@ -87,6 +87,23 @@ def create_rate_limited_test_app() -> FastAPI:
     )
 
 
+def create_ip_rate_limited_test_app() -> FastAPI:
+    return create_app(
+        settings=Settings(
+            app_env="local",
+            database_url="sqlite+pysqlite:///:memory:",
+            persistence_backend="sqlalchemy",
+            auditor_token="test-auditor-token",
+            provisioning_token=PROVISIONING_TOKEN,
+            trusted_proxy_ips="127.0.0.1/32",
+            otp_rate_limit_max_per_company=99,
+            otp_rate_limit_max_per_device=99,
+            otp_rate_limit_max_per_ip=1,
+        ),
+        create_schema=True,
+    )
+
+
 def test_local_otp_delivery_can_expose_code_only_when_configured() -> None:
     delivery_request = AuditorOtpDeliveryRequest(
         company_id="company-1",
@@ -613,6 +630,59 @@ async def test_auditor_access_request_rate_limit_blocks_by_device() -> None:
         )
     assert [event.event_type for event in events] == ["REQUESTED", "BLOCKED"]
     assert events[-1].event_metadata == {"reason": "dispositivo"}
+
+
+@pytest.mark.anyio
+async def test_auditor_access_request_rate_limit_uses_trusted_forwarded_ip() -> None:
+    app = create_ip_rate_limited_test_app()
+    transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 12345))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        company_id = await create_company(client)
+        first_token = await provision_agent_token(client, device_id="device-auditor-1")
+        second_token = await provision_agent_token(client, device_id="device-auditor-2")
+        await register_device(
+            client,
+            device_id="device-auditor-1",
+            agent_token=first_token,
+            hostname="AUDITOR-LAPTOP-1",
+        )
+        await register_device(
+            client,
+            device_id="device-auditor-2",
+            agent_token=second_token,
+            hostname="AUDITOR-LAPTOP-2",
+        )
+        first_response = await client.post(
+            f"/api/v1/companies/{company_id}/auditor-access-requests",
+            headers={
+                "X-Agent-Token": first_token,
+                "X-Forwarded-For": "203.0.113.10",
+            },
+            json={"device_id": "device-auditor-1"},
+        )
+        second_response = await client.post(
+            f"/api/v1/companies/{company_id}/auditor-access-requests",
+            headers={
+                "X-Agent-Token": second_token,
+                "X-Forwarded-For": "203.0.113.10",
+            },
+            json={"device_id": "device-auditor-2"},
+        )
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 429
+    assert second_response.json()["detail"] == "Limite de solicitudes OTP excedido: ip"
+
+    runtime_container = get_runtime_container(app)
+    assert runtime_container.session_factory is not None
+    with runtime_container.session_factory() as session:
+        events = list(
+            session.scalars(
+                select(AuditorOtpEventModel).order_by(AuditorOtpEventModel.occurred_at),
+            ),
+        )
+    assert [event.event_type for event in events] == ["REQUESTED", "BLOCKED"]
+    assert [event.client_ip for event in events] == ["203.0.113.10", "203.0.113.10"]
 
 
 def test_company_auth_schema_blocks_duplicate_pending_enrollment_requests() -> None:

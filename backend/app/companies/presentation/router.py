@@ -1,3 +1,4 @@
+from ipaddress import ip_address, ip_network
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -55,11 +56,58 @@ from backend.app.shared.security import require_agent_token, require_auditor_ses
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
+_CLIENT_IP_HEADERS = (
+    "X-Forwarded-For",
+    "X-Real-IP",
+    "CF-Connecting-IP",
+)
+
 
 def _client_ip(request: Request) -> str | None:
     if request.client is None:
         return None
+    settings = request.app.state.container.settings
+    if _is_trusted_proxy(request.client.host, settings.trusted_proxy_ips):
+        for header_name in _CLIENT_IP_HEADERS:
+            forwarded_ip = _first_valid_ip(request.headers.get(header_name))
+            if forwarded_ip is not None:
+                return forwarded_ip
     return request.client.host
+
+
+def _first_valid_ip(raw_value: str | None) -> str | None:
+    if raw_value is None:
+        return None
+
+    for candidate in raw_value.split(","):
+        try:
+            return str(ip_address(candidate.strip()))
+        except ValueError:
+            continue
+    return None
+
+
+def _is_trusted_proxy(client_host: str, trusted_proxy_ips: str) -> bool:
+    trusted_ranges = [
+        raw_range.strip()
+        for raw_range in trusted_proxy_ips.split(",")
+        if raw_range.strip()
+    ]
+    if not trusted_ranges:
+        return False
+
+    try:
+        client_ip = ip_address(client_host)
+    except ValueError:
+        return False
+
+    for raw_range in trusted_ranges:
+        try:
+            if client_ip in ip_network(raw_range, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def _otp_rate_limit_policy(request: Request) -> OtpRateLimitPolicy:
