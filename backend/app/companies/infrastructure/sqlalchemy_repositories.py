@@ -242,7 +242,7 @@ class SQLAlchemyEnrollmentCodeRepository:
     def find_by_code_digest(self, code_digest: str) -> EnrollmentCode | None:
         statement = select(EnrollmentCodeModel).where(
             EnrollmentCodeModel.code_digest == code_digest,
-        )
+        ).with_for_update()
         model = self._session.scalars(statement).first()
         return _enrollment_code_to_domain(model) if model is not None else None
 
