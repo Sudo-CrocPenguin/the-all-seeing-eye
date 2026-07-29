@@ -2,6 +2,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import uuid4
 
+from backend.app.audit.application.resolve_audit_company_context import (
+    ResolveAuditCompanyContextCommand,
+    ResolveAuditCompanyContextUseCase,
+)
 from backend.app.audit.domain.entities import NetworkAuditEvent
 from backend.app.audit.domain.repositories import NetworkAuditEventRepository
 
@@ -10,6 +14,8 @@ from backend.app.audit.domain.repositories import NetworkAuditEventRepository
 class IngestNetworkAuditEventCommand:
     occurred_at: datetime
     device_id: str
+    company_id: str
+    company_device_link_id: str
     hostname: str
     os_name: str
     agent_version: str
@@ -35,14 +41,28 @@ class IngestNetworkAuditEventCommand:
 
 
 class IngestNetworkAuditEventUseCase:
-    def __init__(self, repository: NetworkAuditEventRepository) -> None:
+    def __init__(
+        self,
+        repository: NetworkAuditEventRepository,
+        company_context_resolver: ResolveAuditCompanyContextUseCase,
+    ) -> None:
         self._repository = repository
+        self._company_context_resolver = company_context_resolver
 
     def execute(self, command: IngestNetworkAuditEventCommand) -> NetworkAuditEvent:
+        link = self._company_context_resolver.execute(
+            ResolveAuditCompanyContextCommand(
+                company_id=command.company_id,
+                company_device_link_id=command.company_device_link_id,
+                device_id=command.device_id,
+            ),
+        )
         event = NetworkAuditEvent(
             event_id=str(uuid4()),
             occurred_at=command.occurred_at,
             device_id=command.device_id,
+            company_id=link.company_id,
+            company_device_link_id=link.company_device_link_id,
             hostname=command.hostname,
             os_name=command.os_name,
             agent_version=command.agent_version,

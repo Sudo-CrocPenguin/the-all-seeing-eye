@@ -67,6 +67,8 @@ class NetworkAuditEvent:
     event_id: str
     occurred_at: datetime
     device_id: str
+    company_id: str
+    company_device_link_id: str
     hostname: str
     os_name: str
     agent_version: str
@@ -94,6 +96,11 @@ class NetworkAuditEvent:
     def __post_init__(self) -> None:
         self.event_id = _require_text(self.event_id, "event_id")
         self.device_id = _require_text(self.device_id, "device_id")
+        self.company_id = _require_text(self.company_id, "company_id")
+        self.company_device_link_id = _require_text(
+            self.company_device_link_id,
+            "company_device_link_id",
+        )
         self.hostname = _require_text(self.hostname, "hostname")
         self.os_name = _require_text(self.os_name, "os_name")
         self.agent_version = _require_text(self.agent_version, "agent_version")
@@ -127,6 +134,8 @@ class AgentLifecycleEvent:
     event_type: AgentLifecycleEventType
     occurred_at: datetime
     device_id: str
+    company_id: str
+    company_device_link_id: str
     hostname: str
     agent_version: str
     local_ip: str | None = None
@@ -140,6 +149,11 @@ class AgentLifecycleEvent:
     def __post_init__(self) -> None:
         self.event_id = _require_text(self.event_id, "event_id")
         self.device_id = _require_text(self.device_id, "device_id")
+        self.company_id = _require_text(self.company_id, "company_id")
+        self.company_device_link_id = _require_text(
+            self.company_device_link_id,
+            "company_device_link_id",
+        )
         self.hostname = _require_text(self.hostname, "hostname")
         self.agent_version = _require_text(self.agent_version, "agent_version")
         self.event_type = AgentLifecycleEventType(self.event_type)

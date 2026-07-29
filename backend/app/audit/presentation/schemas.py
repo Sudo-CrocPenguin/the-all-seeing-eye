@@ -32,6 +32,8 @@ class AgentLifecycleEventTypeRequest(StrEnum):
 class NetworkAuditEventRequest(BaseModel):
     occurred_at: datetime
     device_id: str
+    company_id: str
+    company_device_link_id: str
     hostname: str
     os_name: str
     agent_version: str
@@ -63,6 +65,8 @@ class NetworkAuditEventRequest(BaseModel):
         return IngestNetworkAuditEventCommand(
             occurred_at=self.occurred_at,
             device_id=self.device_id,
+            company_id=self.company_id,
+            company_device_link_id=self.company_device_link_id,
             hostname=self.hostname,
             os_name=self.os_name,
             agent_version=self.agent_version,
@@ -92,6 +96,8 @@ class NetworkAuditEventResponse(BaseModel):
     event_id: str
     occurred_at: datetime
     device_id: str
+    company_id: str
+    company_device_link_id: str
     hostname: str
     os_name: str
     agent_version: str
@@ -122,6 +128,8 @@ class NetworkAuditEventResponse(BaseModel):
             event_id=event.event_id,
             occurred_at=event.occurred_at,
             device_id=event.device_id,
+            company_id=event.company_id,
+            company_device_link_id=event.company_device_link_id,
             hostname=event.hostname,
             os_name=event.os_name,
             agent_version=event.agent_version,
@@ -152,6 +160,8 @@ class AgentLifecycleEventRequest(BaseModel):
     event_type: AgentLifecycleEventTypeRequest
     occurred_at: datetime
     device_id: str
+    company_id: str
+    company_device_link_id: str
     hostname: str
     agent_version: str
     local_ip: str | None = None
@@ -166,6 +176,8 @@ class AgentLifecycleEventRequest(BaseModel):
             event_type=AgentLifecycleEventType(self.event_type.value),
             occurred_at=self.occurred_at,
             device_id=self.device_id,
+            company_id=self.company_id,
+            company_device_link_id=self.company_device_link_id,
             hostname=self.hostname,
             agent_version=self.agent_version,
             local_ip=self.local_ip,
@@ -182,6 +194,8 @@ class AgentLifecycleEventResponse(BaseModel):
     event_type: str
     occurred_at: datetime
     device_id: str
+    company_id: str
+    company_device_link_id: str
     hostname: str
     agent_version: str
     local_ip: str | None
@@ -199,6 +213,8 @@ class AgentLifecycleEventResponse(BaseModel):
             event_type=event.event_type.value,
             occurred_at=event.occurred_at,
             device_id=event.device_id,
+            company_id=event.company_id,
+            company_device_link_id=event.company_device_link_id,
             hostname=event.hostname,
             agent_version=event.agent_version,
             local_ip=event.local_ip,
@@ -276,6 +292,8 @@ class DeviceMovementResponse(BaseModel):
     created_at: datetime
     movement_type: str
     device_id: str
+    company_id: str
+    company_device_link_id: str
     hostname: str
     local_ip: str | None
     public_ip: str | None
@@ -301,6 +319,8 @@ class DeviceMovementResponse(BaseModel):
             created_at=result.created_at,
             movement_type=result.movement_type,
             device_id=result.device_id,
+            company_id=result.company_id,
+            company_device_link_id=result.company_device_link_id,
             hostname=result.hostname,
             local_ip=result.local_ip,
             public_ip=result.public_ip,

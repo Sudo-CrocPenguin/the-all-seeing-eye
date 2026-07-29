@@ -77,6 +77,9 @@ class CompanyDeviceLinkRepository(Protocol):
     def list_by_device(self, device_id: str) -> list[CompanyDeviceLink]:
         raise NotImplementedError
 
+    def list_active(self) -> list[CompanyDeviceLink]:
+        raise NotImplementedError
+
 
 class AuditorAccessRequestRepository(Protocol):
     def save(self, access_request: AuditorAccessRequest) -> AuditorAccessRequest:

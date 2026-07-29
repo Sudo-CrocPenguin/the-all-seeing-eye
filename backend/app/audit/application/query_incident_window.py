@@ -9,6 +9,7 @@ from backend.app.audit.domain.repositories import (
     NetworkAuditEventFilters,
     NetworkAuditEventRepository,
 )
+from backend.app.companies.domain.repositories import CompanyDeviceLinkRepository
 from backend.app.devices.domain.entities import Device
 from backend.app.devices.domain.repositories import DeviceRepository
 from backend.app.shared.domain import DomainValidationError
@@ -23,6 +24,7 @@ IncidentDeviceStatusValue = Literal[
 
 @dataclass(frozen=True, slots=True)
 class QueryIncidentWindowCommand:
+    company_id: str
     from_datetime: datetime
     to_datetime: datetime
     limit: int = 500
@@ -56,10 +58,12 @@ class QueryIncidentWindowUseCase:
         device_repository: DeviceRepository,
         network_event_repository: NetworkAuditEventRepository,
         lifecycle_event_repository: AgentLifecycleEventRepository,
+        company_device_link_repository: CompanyDeviceLinkRepository,
     ) -> None:
         self._device_repository = device_repository
         self._network_event_repository = network_event_repository
         self._lifecycle_event_repository = lifecycle_event_repository
+        self._company_device_link_repository = company_device_link_repository
 
     def execute(self, command: QueryIncidentWindowCommand) -> IncidentWindow:
         from_datetime = ensure_aware(command.from_datetime)
@@ -69,11 +73,13 @@ class QueryIncidentWindowUseCase:
 
         limit = max(command.limit, 1)
         network_filters = NetworkAuditEventFilters(
+            company_id=command.company_id,
             from_datetime=from_datetime,
             to_datetime=to_datetime,
             limit=limit,
         )
         lifecycle_filters = AgentLifecycleEventFilters(
+            company_id=command.company_id,
             from_datetime=from_datetime,
             to_datetime=to_datetime,
             limit=limit,
@@ -88,8 +94,16 @@ class QueryIncidentWindowUseCase:
             self._network_event_repository.list_device_ids(network_filters)
             | self._lifecycle_event_repository.list_device_ids(lifecycle_filters)
         )
+        company_device_ids = {
+            link.device_id
+            for link in self._company_device_link_repository.list_by_company(command.company_id)
+        }
         device_statuses = _build_device_statuses(
-            devices=self._device_repository.list_all(),
+            devices=[
+                device
+                for device in self._device_repository.list_all()
+                if device.device_id in company_device_ids
+            ],
             network_events=network_events,
             lifecycle_events=lifecycle_events,
             active_device_ids=active_device_ids,
