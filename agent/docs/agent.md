@@ -88,6 +88,8 @@ Si el archivo JSONL queda parcialmente corrupto tras un corte, el agente ignora 
 
 Los errores temporales de red, HTTP `408`, `429` y respuestas `5xx` se consideran reintentables y se guardan en cola. Los errores fatales como token invalido, permisos insuficientes o payload rechazado (`401`, `403`, `422`) no se encolan indefinidamente: el agente los expone como fallo para corregir la configuracion o los datos enviados.
 
+Durante upgrades desde betas previas, un registro antiguo de auditoria que ya estaba en cola sin `company_id` o `company_device_link_id` puede recibir HTTP `422`. En ese caso el agente lo descarta con un warning y continua vaciando la cola para que los eventos nuevos con contexto multiempresa no queden bloqueados detras de datos incompatibles.
+
 ## Identidad Dinamica Y Resolucion De Destino
 
 El agente vuelve a recolectar identidad tecnica antes de cada heartbeat y cada scan de red. Si cambian interfaces, IP local, VPN o metadatos del dispositivo, registra nuevamente el equipo y envia `AGENT_CONFIG_CHANGED`. Esto mantiene la correlacion actualizada sin reiniciar el servicio.

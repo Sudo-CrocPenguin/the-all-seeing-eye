@@ -15,9 +15,16 @@ class InsecureBackendUrlError(ValueError):
 
 
 class AgentTransportError(RuntimeError):
-    def __init__(self, message: str, *, retryable: bool = True) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = True,
+        status_code: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.retryable = retryable
+        self.status_code = status_code
 
 
 def build_device_registration_payload(identity: DeviceIdentity) -> dict[str, Any]:
@@ -124,6 +131,7 @@ class AuditApiClient:
             raise AgentTransportError(
                 f"Backend respondio {exc.code} al enviar {path}: {error_body}",
                 retryable=_is_retryable_http_status(exc.code),
+                status_code=exc.code,
             ) from exc
         except URLError as exc:
             raise AgentTransportError(f"No se pudo conectar con el backend: {exc.reason}") from exc

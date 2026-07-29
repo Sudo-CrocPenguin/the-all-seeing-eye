@@ -608,6 +608,47 @@ def test_queued_client_flushes_pending_requests_before_new_send(tmp_path: Any) -
     assert queue.read_all() == []
 
 
+def test_queued_client_discards_legacy_audit_events_without_company_context(
+    tmp_path: Any,
+) -> None:
+    queue_file = tmp_path / "agent-queue.jsonl"
+    queue = LocalAgentRequestQueue(queue_file)
+    queue.enqueue(
+        QueuedRequest(
+            path="/api/v1/audit/lifecycle-events",
+            payload={
+                "event_type": "AGENT_STARTED",
+                "device_id": "device-1",
+            },
+        ),
+    )
+    queue.enqueue(
+        QueuedRequest(
+            path="/api/v1/audit/network-events",
+            payload={
+                "device_id": "device-1",
+                "company_id": "company-1",
+                "company_device_link_id": "link-1",
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "Linux",
+                "agent_version": "0.1.0",
+                "occurred_at": "2026-07-27T14:00:01+00:00",
+                "protocol": "TCP",
+            },
+        ),
+    )
+    post_client = RejectingLegacyAuditPostJsonClient()
+    client = QueuedAuditApiClient(post_client, queue, retry_backoff_seconds=30)
+
+    assert client.flush()
+
+    assert [request[0] for request in post_client.requests] == [
+        "/api/v1/audit/lifecycle-events",
+        "/api/v1/audit/network-events",
+    ]
+    assert queue.read_all() == []
+
+
 def test_queued_client_queues_current_request_when_pending_flush_is_blocked(
     tmp_path: Any,
 ) -> None:
@@ -828,6 +869,19 @@ class RecordingPostJsonClient:
 
     def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
         self.requests.append((path, payload))
+        return {"status": "ok"}
+
+
+class RejectingLegacyAuditPostJsonClient:
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, dict[str, object]]] = []
+
+    def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+        self.requests.append((path, payload))
+        if path.startswith("/api/v1/audit/") and (
+            not payload.get("company_id") or not payload.get("company_device_link_id")
+        ):
+            raise AgentTransportError("payload legacy", retryable=False, status_code=422)
         return {"status": "ok"}
 
 
