@@ -18,6 +18,8 @@ from backend.app.shared.time import ensure_aware, utc_now
 @dataclass(frozen=True, slots=True)
 class RecordAgentActivityCommand:
     device_id: str
+    company_id: str
+    company_device_link_id: str
     hostname: str
     agent_version: str
     local_ip: str | None = None
@@ -51,7 +53,11 @@ class RecordAgentActivityUseCase:
         observed_at: datetime,
     ) -> AgentLifecycleEvent | None:
         latest_events = self._lifecycle_event_repository.search(
-            AgentLifecycleEventFilters(device_id=command.device_id, limit=1),
+            AgentLifecycleEventFilters(
+                company_id=command.company_id,
+                device_id=command.device_id,
+                limit=1,
+            ),
         )
         if not latest_events:
             return None
@@ -79,6 +85,8 @@ class RecordAgentActivityUseCase:
             event_type=AgentLifecycleEventType.RECOVERED,
             occurred_at=observed_at,
             device_id=command.device_id,
+            company_id=command.company_id,
+            company_device_link_id=command.company_device_link_id,
             hostname=command.hostname,
             agent_version=command.agent_version,
             local_ip=command.local_ip,

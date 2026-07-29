@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, DateTime, Integer, String
+from sqlalchemy import JSON, BigInteger, DateTime, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.shared.database import Base
@@ -8,10 +8,26 @@ from backend.app.shared.database import Base
 
 class NetworkAuditEventModel(Base):
     __tablename__ = "network_audit_events"
+    __table_args__ = (
+        Index(
+            "ix_network_audit_events_company_device_occurred",
+            "company_id",
+            "device_id",
+            "occurred_at",
+        ),
+        Index(
+            "ix_network_audit_events_company_link_occurred",
+            "company_id",
+            "company_device_link_id",
+            "occurred_at",
+        ),
+    )
 
     event_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     device_id: Mapped[str] = mapped_column(String(128), index=True)
+    company_id: Mapped[str] = mapped_column(String(36), index=True)
+    company_device_link_id: Mapped[str] = mapped_column(String(36), index=True)
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     os_name: Mapped[str] = mapped_column(String(128), nullable=False)
     agent_version: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -39,11 +55,27 @@ class NetworkAuditEventModel(Base):
 
 class AgentLifecycleEventModel(Base):
     __tablename__ = "agent_lifecycle_events"
+    __table_args__ = (
+        Index(
+            "ix_agent_lifecycle_events_company_device_occurred",
+            "company_id",
+            "device_id",
+            "occurred_at",
+        ),
+        Index(
+            "ix_agent_lifecycle_events_company_link_occurred",
+            "company_id",
+            "company_device_link_id",
+            "occurred_at",
+        ),
+    )
 
     event_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     event_type: Mapped[str] = mapped_column(String(64), index=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     device_id: Mapped[str] = mapped_column(String(128), index=True)
+    company_id: Mapped[str] = mapped_column(String(36), index=True)
+    company_device_link_id: Mapped[str] = mapped_column(String(36), index=True)
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     agent_version: Mapped[str] = mapped_column(String(64), nullable=False)
     local_ip: Mapped[str | None] = mapped_column(String(45), index=True)

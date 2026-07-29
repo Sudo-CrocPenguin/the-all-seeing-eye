@@ -2,6 +2,7 @@ from secrets import compare_digest
 
 from fastapi import HTTPException, Request, status
 
+from backend.app.companies.domain.entities import AuditorSession
 from backend.app.devices.application.authenticate_agent import (
     AuthenticateAgentCommand,
     AuthenticateAgentUseCase,
@@ -39,6 +40,40 @@ def require_auditor_token(request: Request, settings: Settings) -> None:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token de auditoria invalido",
         )
+
+
+def require_auditor_session(
+    request: Request,
+    settings: Settings,
+    container: AppContainer,
+    *,
+    company_id: str | None = None,
+    required_scope: str | None = None,
+) -> AuditorSession:
+    session_id = request.headers.get(settings.auditor_session_header)
+    if not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesion de auditor requerida",
+        )
+
+    session = container.auditor_session_repository.find_by_id(session_id)
+    if session is None or not session.is_active():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesion de auditor invalida",
+        )
+    if company_id is not None and session.company_id != company_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesion de auditor invalida",
+        )
+    if required_scope is not None and required_scope not in session.scopes:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="La sesion de auditor no tiene permisos suficientes",
+        )
+    return session
 
 
 def require_agent_token(

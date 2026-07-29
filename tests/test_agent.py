@@ -28,6 +28,8 @@ from agent.app.windows_service import (
 def test_agent_settings_from_environment(monkeypatch: Any) -> None:
     monkeypatch.setenv("AGENT_BACKEND_URL", "http://backend.local:8000/")
     monkeypatch.setenv("AGENT_DEVICE_ID", "device-123")
+    monkeypatch.setenv("AGENT_COMPANY_ID", "company-1")
+    monkeypatch.setenv("AGENT_COMPANY_DEVICE_LINK_ID", "link-1")
     monkeypatch.setenv("AGENT_TOKEN", "agent-token")
     monkeypatch.setenv("AGENT_TOKEN_HEADER", "X-Custom-Agent-Token")
     monkeypatch.setenv("AGENT_HEARTBEAT_INTERVAL_SECONDS", "30")
@@ -42,6 +44,8 @@ def test_agent_settings_from_environment(monkeypatch: Any) -> None:
 
     assert settings.backend_url == "http://backend.local:8000"
     assert settings.device_id == "device-123"
+    assert settings.company_id == "company-1"
+    assert settings.company_device_link_id == "link-1"
     assert settings.agent_token == "agent-token"
     assert settings.agent_token_header == "X-Custom-Agent-Token"
     assert settings.heartbeat_interval_seconds == 30
@@ -63,6 +67,8 @@ def test_agent_settings_from_env_file(tmp_path: Any, monkeypatch: Any) -> None:
             [
                 "AGENT_BACKEND_URL=http://backend.local:8000/",
                 "AGENT_DEVICE_ID=device-file",
+                "AGENT_COMPANY_ID=company-file",
+                "AGENT_COMPANY_DEVICE_LINK_ID=link-file",
                 "AGENT_TOKEN=token-file",
                 "AGENT_HEARTBEAT_INTERVAL_SECONDS=20",
             ],
@@ -74,6 +80,8 @@ def test_agent_settings_from_env_file(tmp_path: Any, monkeypatch: Any) -> None:
 
     assert settings.backend_url == "http://backend.local:8000"
     assert settings.device_id == "device-file"
+    assert settings.company_id == "company-file"
+    assert settings.company_device_link_id == "link-file"
     assert settings.agent_token == "token-file"
     assert settings.heartbeat_interval_seconds == 20
 
@@ -186,8 +194,14 @@ def test_network_collector_builds_connection_payload(monkeypatch: Any) -> None:
     connections = NetworkConnectionCollector(service_map).collect(identity)
 
     assert len(connections) == 1
-    payload = connections[0].to_backend_payload(identity)
+    payload = connections[0].to_backend_payload(
+        identity,
+        company_id="company-1",
+        company_device_link_id="link-1",
+    )
     assert payload["device_id"] == "device-1"
+    assert payload["company_id"] == "company-1"
+    assert payload["company_device_link_id"] == "link-1"
     assert payload["protocol"] == "TCP"
     assert payload["destination_ip"] == "93.184.216.34"
     assert payload["destination_host"] == "example.com"
@@ -254,7 +268,12 @@ def test_runner_once_reports_lifecycle_and_network_event() -> None:
     )
     api_client = FakeAuditApiClient()
     runner = AgentRunner(
-        AgentSettings(heartbeat_interval_seconds=1, scan_interval_seconds=1),
+        AgentSettings(
+            heartbeat_interval_seconds=1,
+            scan_interval_seconds=1,
+            company_id="company-1",
+            company_device_link_id="link-1",
+        ),
         identity_collector=FakeIdentityCollector(identity),
         network_collector=FakeNetworkCollector([connection]),
         api_client=api_client,
@@ -271,6 +290,8 @@ def test_runner_once_reports_lifecycle_and_network_event() -> None:
     ]
     assert len(api_client.network_events) == 1
     assert api_client.network_events[0]["destination_ip"] == "93.184.216.34"
+    assert api_client.network_events[0]["company_id"] == "company-1"
+    assert api_client.network_events[0]["company_device_link_id"] == "link-1"
 
 
 def test_runner_forever_uses_scan_interval_independently_from_heartbeat() -> None:
@@ -300,6 +321,8 @@ def test_runner_forever_uses_scan_interval_independently_from_heartbeat() -> Non
             heartbeat_interval_seconds=10,
             scan_interval_seconds=3,
             network_event_dedup_seconds=0,
+            company_id="company-1",
+            company_device_link_id="link-1",
         ),
         identity_collector=FakeIdentityCollector(identity),
         network_collector=FakeNetworkCollector([connection]),
@@ -357,6 +380,8 @@ def test_runner_forever_refreshes_identity_when_network_metadata_changes() -> No
             heartbeat_interval_seconds=10,
             scan_interval_seconds=3,
             network_event_dedup_seconds=0,
+            company_id="company-1",
+            company_device_link_id="link-1",
         ),
         identity_collector=CyclingIdentityCollector([first_identity, updated_identity]),
         network_collector=network_collector,
@@ -377,6 +402,7 @@ def test_runner_forever_refreshes_identity_when_network_metadata_changes() -> No
     assert network_collector.seen_identities == [updated_identity]
     assert api_client.network_events[0]["local_ip"] == "10.8.0.10"
     assert api_client.network_events[0]["network_interface"] == "tun0"
+    assert api_client.network_events[0]["company_id"] == "company-1"
 
 
 def test_runner_requires_agent_token_when_using_real_client() -> None:
@@ -386,6 +412,34 @@ def test_runner_requires_agent_token_when_using_real_client() -> None:
         assert "AGENT_TOKEN" in str(exc)
     else:
         raise AssertionError("AgentRunner debe exigir AGENT_TOKEN")
+
+
+def test_runner_requires_company_context_before_audit_events() -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    api_client = FakeAuditApiClient()
+    runner = AgentRunner(
+        AgentSettings(),
+        identity_collector=FakeIdentityCollector(identity),
+        network_collector=FakeNetworkCollector([]),
+        api_client=api_client,
+    )
+
+    try:
+        runner.run_once()
+    except AgentConfigurationError as exc:
+        assert "AGENT_COMPANY_ID" in str(exc)
+        assert "AGENT_COMPANY_DEVICE_LINK_ID" in str(exc)
+    else:
+        raise AssertionError("AgentRunner debe exigir empresa activa para auditoria")
+
+    assert api_client.lifecycle_events == []
+    assert api_client.network_events == []
 
 
 def test_api_client_sends_agent_token_header(monkeypatch: Any) -> None:
@@ -475,6 +529,8 @@ def test_queued_client_persists_request_when_backend_fails(tmp_path: Any) -> Non
     response = client.send_network_event(
         {
             "device_id": "device-1",
+            "company_id": "company-1",
+            "company_device_link_id": "link-1",
             "hostname": "DEV-LAPTOP-001",
             "os_name": "Linux",
             "agent_version": "0.1.0",
@@ -502,6 +558,8 @@ def test_queued_client_raises_and_does_not_queue_fatal_errors(tmp_path: Any) -> 
         client.send_network_event(
             {
                 "device_id": "device-1",
+                "company_id": "company-1",
+                "company_device_link_id": "link-1",
                 "hostname": "DEV-LAPTOP-001",
                 "os_name": "Linux",
                 "agent_version": "0.1.0",
@@ -532,6 +590,8 @@ def test_queued_client_flushes_pending_requests_before_new_send(tmp_path: Any) -
     response = client.send_network_event(
         {
             "device_id": "device-1",
+            "company_id": "company-1",
+            "company_device_link_id": "link-1",
             "hostname": "DEV-LAPTOP-001",
             "os_name": "Linux",
             "agent_version": "0.1.0",
@@ -541,6 +601,47 @@ def test_queued_client_flushes_pending_requests_before_new_send(tmp_path: Any) -
     )
 
     assert response == {"status": "ok"}
+    assert [request[0] for request in post_client.requests] == [
+        "/api/v1/audit/lifecycle-events",
+        "/api/v1/audit/network-events",
+    ]
+    assert queue.read_all() == []
+
+
+def test_queued_client_discards_legacy_audit_events_without_company_context(
+    tmp_path: Any,
+) -> None:
+    queue_file = tmp_path / "agent-queue.jsonl"
+    queue = LocalAgentRequestQueue(queue_file)
+    queue.enqueue(
+        QueuedRequest(
+            path="/api/v1/audit/lifecycle-events",
+            payload={
+                "event_type": "AGENT_STARTED",
+                "device_id": "device-1",
+            },
+        ),
+    )
+    queue.enqueue(
+        QueuedRequest(
+            path="/api/v1/audit/network-events",
+            payload={
+                "device_id": "device-1",
+                "company_id": "company-1",
+                "company_device_link_id": "link-1",
+                "hostname": "DEV-LAPTOP-001",
+                "os_name": "Linux",
+                "agent_version": "0.1.0",
+                "occurred_at": "2026-07-27T14:00:01+00:00",
+                "protocol": "TCP",
+            },
+        ),
+    )
+    post_client = RejectingLegacyAuditPostJsonClient()
+    client = QueuedAuditApiClient(post_client, queue, retry_backoff_seconds=30)
+
+    assert client.flush()
+
     assert [request[0] for request in post_client.requests] == [
         "/api/v1/audit/lifecycle-events",
         "/api/v1/audit/network-events",
@@ -579,10 +680,14 @@ def test_queued_client_queues_current_request_when_pending_flush_is_blocked(
         identity,
         "AGENT_STARTED",
         "2026-07-27T14:00:00+00:00",
+        company_id="company-1",
+        company_device_link_id="link-1",
     )
     network_response = client.send_network_event(
         {
             "device_id": "device-1",
+            "company_id": "company-1",
+            "company_device_link_id": "link-1",
             "hostname": "DEV-LAPTOP-001",
             "os_name": "Linux",
             "agent_version": "0.1.0",
@@ -732,10 +837,16 @@ class FakeAuditApiClient:
         event_type: str,
         _occurred_at: str,
         *,
+        company_id: str,
+        company_device_link_id: str,
         reason: str | None = None,
     ) -> dict[str, object]:
         self.lifecycle_events.append(event_type)
-        return {"reason": reason or ""}
+        return {
+            "company_id": company_id,
+            "company_device_link_id": company_device_link_id,
+            "reason": reason or "",
+        }
 
     def send_network_event(self, payload: dict[str, object]) -> dict[str, object]:
         self.network_events.append(payload)
@@ -758,6 +869,19 @@ class RecordingPostJsonClient:
 
     def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
         self.requests.append((path, payload))
+        return {"status": "ok"}
+
+
+class RejectingLegacyAuditPostJsonClient:
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, dict[str, object]]] = []
+
+    def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+        self.requests.append((path, payload))
+        if path.startswith("/api/v1/audit/") and (
+            not payload.get("company_id") or not payload.get("company_device_link_id")
+        ):
+            raise AgentTransportError("payload legacy", retryable=False, status_code=422)
         return {"status": "ok"}
 
 

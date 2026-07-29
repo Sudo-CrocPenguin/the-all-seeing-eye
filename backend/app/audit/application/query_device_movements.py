@@ -24,6 +24,7 @@ DeviceMovementType = Literal[
 
 @dataclass(frozen=True, slots=True)
 class QueryDeviceMovementsCommand:
+    company_id: str
     device_id: str
     from_datetime: datetime | None = None
     to_datetime: datetime | None = None
@@ -37,6 +38,8 @@ class DeviceMovement:
     created_at: datetime
     movement_type: DeviceMovementType
     device_id: str
+    company_id: str
+    company_device_link_id: str
     hostname: str
     local_ip: str | None
     public_ip: str | None
@@ -68,6 +71,7 @@ class QueryDeviceMovementsUseCase:
         limit = max(command.limit, 1)
         network_events = self._network_event_repository.search(
             NetworkAuditEventFilters(
+                company_id=command.company_id,
                 device_id=command.device_id,
                 from_datetime=command.from_datetime,
                 to_datetime=command.to_datetime,
@@ -76,6 +80,7 @@ class QueryDeviceMovementsUseCase:
         )
         lifecycle_events = self._lifecycle_event_repository.search(
             AgentLifecycleEventFilters(
+                company_id=command.company_id,
                 device_id=command.device_id,
                 from_datetime=command.from_datetime,
                 to_datetime=command.to_datetime,
@@ -97,6 +102,8 @@ def _network_event_to_movement(event: NetworkAuditEvent) -> DeviceMovement:
         created_at=event.created_at,
         movement_type="NETWORK_CONNECTION",
         device_id=event.device_id,
+        company_id=event.company_id,
+        company_device_link_id=event.company_device_link_id,
         hostname=event.hostname,
         local_ip=event.local_ip,
         public_ip=event.public_ip,
@@ -122,6 +129,8 @@ def _lifecycle_event_to_movement(event: AgentLifecycleEvent) -> DeviceMovement:
         created_at=event.created_at,
         movement_type=event.event_type.value,
         device_id=event.device_id,
+        company_id=event.company_id,
+        company_device_link_id=event.company_device_link_id,
         hostname=event.hostname,
         local_ip=event.local_ip,
         public_ip=event.public_ip,

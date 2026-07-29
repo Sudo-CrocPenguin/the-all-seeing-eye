@@ -15,9 +15,16 @@ class InsecureBackendUrlError(ValueError):
 
 
 class AgentTransportError(RuntimeError):
-    def __init__(self, message: str, *, retryable: bool = True) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = True,
+        status_code: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.retryable = retryable
+        self.status_code = status_code
 
 
 def build_device_registration_payload(identity: DeviceIdentity) -> dict[str, Any]:
@@ -39,12 +46,16 @@ def build_lifecycle_event_payload(
     event_type: str,
     occurred_at: str,
     *,
+    company_id: str,
+    company_device_link_id: str,
     reason: str | None = None,
 ) -> dict[str, Any]:
     return {
         "event_type": event_type,
         "occurred_at": occurred_at,
         "device_id": identity.device_id,
+        "company_id": company_id,
+        "company_device_link_id": company_device_link_id,
         "hostname": identity.hostname,
         "agent_version": identity.agent_version,
         "local_ip": identity.primary_local_ip,
@@ -80,6 +91,8 @@ class AuditApiClient:
         event_type: str,
         occurred_at: str,
         *,
+        company_id: str,
+        company_device_link_id: str,
         reason: str | None = None,
     ) -> dict[str, Any]:
         return self.post_json(
@@ -88,6 +101,8 @@ class AuditApiClient:
                 identity,
                 event_type,
                 occurred_at,
+                company_id=company_id,
+                company_device_link_id=company_device_link_id,
                 reason=reason,
             ),
         )
@@ -116,6 +131,7 @@ class AuditApiClient:
             raise AgentTransportError(
                 f"Backend respondio {exc.code} al enviar {path}: {error_body}",
                 retryable=_is_retryable_http_status(exc.code),
+                status_code=exc.code,
             ) from exc
         except URLError as exc:
             raise AgentTransportError(f"No se pudo conectar con el backend: {exc.reason}") from exc

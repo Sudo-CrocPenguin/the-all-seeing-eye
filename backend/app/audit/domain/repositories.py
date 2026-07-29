@@ -7,6 +7,8 @@ from backend.app.audit.domain.entities import AgentLifecycleEvent, NetworkAuditE
 
 @dataclass(frozen=True, slots=True)
 class NetworkAuditEventFilters:
+    company_id: str | None = None
+    company_device_link_id: str | None = None
     device_id: str | None = None
     local_ip: str | None = None
     public_ip: str | None = None
@@ -20,6 +22,8 @@ class NetworkAuditEventFilters:
 
 @dataclass(frozen=True, slots=True)
 class AgentLifecycleEventFilters:
+    company_id: str | None = None
+    company_device_link_id: str | None = None
     device_id: str | None = None
     event_type: str | None = None
     from_datetime: datetime | None = None
@@ -37,6 +41,9 @@ class NetworkAuditEventRepository(Protocol):
     def list_device_ids(self, filters: NetworkAuditEventFilters) -> set[str]:
         raise NotImplementedError
 
+    def latest_seen_at_by_device(self, filters: NetworkAuditEventFilters) -> dict[str, datetime]:
+        raise NotImplementedError
+
 
 class AgentLifecycleEventRepository(Protocol):
     def save(self, event: AgentLifecycleEvent) -> AgentLifecycleEvent:
@@ -46,4 +53,10 @@ class AgentLifecycleEventRepository(Protocol):
         raise NotImplementedError
 
     def list_device_ids(self, filters: AgentLifecycleEventFilters) -> set[str]:
+        raise NotImplementedError
+
+    def latest_seen_at_by_device(
+        self,
+        filters: AgentLifecycleEventFilters,
+    ) -> dict[str, datetime]:
         raise NotImplementedError

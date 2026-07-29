@@ -48,10 +48,18 @@ class ObservedNetworkConnection:
             ],
         )
 
-    def to_backend_payload(self, identity: DeviceIdentity) -> dict[str, object]:
+    def to_backend_payload(
+        self,
+        identity: DeviceIdentity,
+        *,
+        company_id: str,
+        company_device_link_id: str,
+    ) -> dict[str, object]:
         return {
             "occurred_at": to_iso(self.occurred_at),
             "device_id": identity.device_id,
+            "company_id": company_id,
+            "company_device_link_id": company_device_link_id,
             "hostname": identity.hostname,
             "os_name": identity.os_name,
             "agent_version": identity.agent_version,

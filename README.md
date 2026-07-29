@@ -266,9 +266,9 @@ La plataforma debe implementar controles de proteccion desde el inicio:
 
 ## Estado Actual
 
-El proyecto se encuentra preparando beta local. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. Las consultas de auditoria requieren token dedicado. El backend actualiza `last_seen_at` cuando recibe senales validas de agentes autenticados, detecta heartbeats perdidos, registra recuperaciones y expone una consulta de ventana forense por rango o marca exacta de tiempo.
+El proyecto se encuentra preparando beta local. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. Las consultas de eventos de auditoria requieren sesion temporal de auditor por empresa. El backend actualiza `last_seen_at` cuando recibe senales validas de agentes autenticados, detecta heartbeats perdidos por vinculo activo, registra recuperaciones y expone una consulta de ventana forense por rango o marca exacta de tiempo.
 
-El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes enriquecidas con usuario local, PID, proceso, ejecutable y mapa local de servicios, guardar eventos pendientes en cola local cuando el backend no responde y desplegarse como servicio administrado en Linux/Windows.
+El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes enriquecidas con usuario local, PID, proceso, ejecutable y mapa local de servicios, adjuntar `company_id` y `company_device_link_id` configurados, guardar eventos pendientes en cola local cuando el backend no responde y desplegarse como servicio administrado en Linux/Windows.
 
 La beta exige que los eventos pertenezcan a dispositivos registrados, no encola errores fatales del backend, conserva orden causal en la cola local y acepta IP publica desde headers de proxy solo cuando el proxy esta declarado en `TRUSTED_PROXY_IPS`. El `public_ip` del JSON del agente no se usa como evidencia.
 

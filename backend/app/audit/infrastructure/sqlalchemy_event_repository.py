@@ -1,6 +1,7 @@
+from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from backend.app.audit.domain.entities import (
@@ -26,6 +27,8 @@ def _network_model_to_domain(model: NetworkAuditEventModel) -> NetworkAuditEvent
         event_id=model.event_id,
         occurred_at=model.occurred_at,
         device_id=model.device_id,
+        company_id=model.company_id,
+        company_device_link_id=model.company_device_link_id,
         hostname=model.hostname,
         os_name=model.os_name,
         agent_version=model.agent_version,
@@ -57,6 +60,8 @@ def _network_domain_to_model(event: NetworkAuditEvent) -> NetworkAuditEventModel
         event_id=event.event_id,
         occurred_at=event.occurred_at,
         device_id=event.device_id,
+        company_id=event.company_id,
+        company_device_link_id=event.company_device_link_id,
         hostname=event.hostname,
         os_name=event.os_name,
         agent_version=event.agent_version,
@@ -89,6 +94,8 @@ def _lifecycle_model_to_domain(model: AgentLifecycleEventModel) -> AgentLifecycl
         event_type=AgentLifecycleEventType(model.event_type),
         occurred_at=model.occurred_at,
         device_id=model.device_id,
+        company_id=model.company_id,
+        company_device_link_id=model.company_device_link_id,
         hostname=model.hostname,
         agent_version=model.agent_version,
         local_ip=model.local_ip,
@@ -107,6 +114,8 @@ def _lifecycle_domain_to_model(event: AgentLifecycleEvent) -> AgentLifecycleEven
         event_type=event.event_type.value,
         occurred_at=event.occurred_at,
         device_id=event.device_id,
+        company_id=event.company_id,
+        company_device_link_id=event.company_device_link_id,
         hostname=event.hostname,
         agent_version=event.agent_version,
         local_ip=event.local_ip,
@@ -143,11 +152,31 @@ class SQLAlchemyNetworkAuditEventRepository:
         statement = self._apply_filters(statement, filters)
         return set(self._session.scalars(statement).all())
 
+    def latest_seen_at_by_device(self, filters: NetworkAuditEventFilters) -> dict[str, datetime]:
+        statement = select(
+            NetworkAuditEventModel.device_id,
+            func.max(NetworkAuditEventModel.occurred_at),
+        )
+        statement = self._apply_filters(statement, filters)
+        statement = statement.group_by(NetworkAuditEventModel.device_id)
+        return {
+            device_id: ensure_aware(latest_seen_at)
+            for device_id, latest_seen_at in self._session.execute(statement).all()
+            if latest_seen_at is not None
+        }
+
     def _apply_filters(
         self,
         statement: Select[Any],
         filters: NetworkAuditEventFilters,
     ) -> Select[Any]:
+        if filters.company_id:
+            statement = statement.where(NetworkAuditEventModel.company_id == filters.company_id)
+        if filters.company_device_link_id:
+            statement = statement.where(
+                NetworkAuditEventModel.company_device_link_id
+                == filters.company_device_link_id,
+            )
         if filters.device_id:
             statement = statement.where(NetworkAuditEventModel.device_id == filters.device_id)
         if filters.local_ip:
@@ -199,11 +228,34 @@ class SQLAlchemyAgentLifecycleEventRepository:
         statement = self._apply_filters(statement, filters)
         return set(self._session.scalars(statement).all())
 
+    def latest_seen_at_by_device(
+        self,
+        filters: AgentLifecycleEventFilters,
+    ) -> dict[str, datetime]:
+        statement = select(
+            AgentLifecycleEventModel.device_id,
+            func.max(AgentLifecycleEventModel.occurred_at),
+        )
+        statement = self._apply_filters(statement, filters)
+        statement = statement.group_by(AgentLifecycleEventModel.device_id)
+        return {
+            device_id: ensure_aware(latest_seen_at)
+            for device_id, latest_seen_at in self._session.execute(statement).all()
+            if latest_seen_at is not None
+        }
+
     def _apply_filters(
         self,
         statement: Select[Any],
         filters: AgentLifecycleEventFilters,
     ) -> Select[Any]:
+        if filters.company_id:
+            statement = statement.where(AgentLifecycleEventModel.company_id == filters.company_id)
+        if filters.company_device_link_id:
+            statement = statement.where(
+                AgentLifecycleEventModel.company_device_link_id
+                == filters.company_device_link_id,
+            )
         if filters.device_id:
             statement = statement.where(AgentLifecycleEventModel.device_id == filters.device_id)
         if filters.event_type:

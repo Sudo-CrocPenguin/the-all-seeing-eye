@@ -15,6 +15,11 @@ from agent.app.transport import (
 )
 
 LOGGER = logging.getLogger(__name__)
+AUDIT_EVENT_PATHS = {
+    "/api/v1/audit/lifecycle-events",
+    "/api/v1/audit/network-events",
+}
+REQUIRED_COMPANY_CONTEXT_FIELDS = ("company_id", "company_device_link_id")
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +138,8 @@ class QueuedAuditApiClient:
         event_type: str,
         occurred_at: str,
         *,
+        company_id: str,
+        company_device_link_id: str,
         reason: str | None = None,
     ) -> dict[str, Any]:
         return self._post_or_queue(
@@ -142,6 +149,8 @@ class QueuedAuditApiClient:
                     identity,
                     event_type,
                     occurred_at,
+                    company_id=company_id,
+                    company_device_link_id=company_device_link_id,
                     reason=reason,
                 ),
             ),
@@ -183,6 +192,12 @@ class QueuedAuditApiClient:
             try:
                 self._client.post_json(request.path, request.payload)
             except AgentTransportError as exc:
+                if _should_discard_legacy_audit_request(request, exc):
+                    LOGGER.warning(
+                        "Registro legacy descartado de cola local %s: falta contexto multiempresa",
+                        request.path,
+                    )
+                    continue
                 if not exc.retryable:
                     raise
                 remaining_requests.extend(queued_requests[index:])
@@ -196,3 +211,22 @@ class QueuedAuditApiClient:
 
     def _schedule_next_flush(self) -> None:
         self._next_flush_at = self._monotonic_clock() + self._retry_backoff_seconds
+
+
+def _should_discard_legacy_audit_request(
+    request: QueuedRequest,
+    error: AgentTransportError,
+) -> bool:
+    return (
+        error.status_code == 422
+        and request.path in AUDIT_EVENT_PATHS
+        and _has_missing_company_context(request.payload)
+    )
+
+
+def _has_missing_company_context(payload: dict[str, Any]) -> bool:
+    for field_name in REQUIRED_COMPANY_CONTEXT_FIELDS:
+        field_value = payload.get(field_name)
+        if not isinstance(field_value, str) or not field_value.strip():
+            return True
+    return False

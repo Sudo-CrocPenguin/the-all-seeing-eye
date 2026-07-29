@@ -147,6 +147,17 @@ El token no se guarda en claro. El backend guarda hash y sal en la tabla `agent_
 
 Los eventos de auditoria solo se aceptan para dispositivos ya registrados en `POST /api/v1/devices`. Aunque el payload incluya `hostname`, `os_name` o `agent_version`, el backend usa los valores registrados del dispositivo para esos campos estables y evita confiar en metadatos reclamados por el agente.
 
+Los eventos de red y ciclo de vida tambien deben incluir:
+
+```text
+company_id
+company_device_link_id
+```
+
+El backend valida que `company_device_link_id` pertenezca a `company_id`, al `device_id` autenticado y que el vinculo este `ACTIVE`. Los eventos historicos conservan esos IDs aunque el vinculo se revoque despues.
+
+Desde V1 estos campos son obligatorios tambien en la base de datos. La migracion multiempresa asume una base limpia o eventos beta ya migrados con un `company_id` y `company_device_link_id` historico. Si existen eventos legacy sin contexto, se deben exportar, asociar por backfill o purgar antes de ejecutar Alembic en produccion.
+
 La IP publica observada se toma del socket de entrada o de headers de proxy solo si la solicitud llega desde un proxy confiable configurado en:
 
 ```text
@@ -157,9 +168,9 @@ Si `TRUSTED_PROXY_IPS` esta vacio, headers como `X-Forwarded-For`, `X-Real-IP` y
 
 El campo persistido `public_ip` se calcula solo desde la conexion entrante o desde un proxy confiable. Si un agente envia `public_ip` en el JSON, ese valor no se usa como evidencia y, en eventos de red, queda separado en `request_metadata.agent_reported_public_ip`.
 
-## Consultas De Auditoria
+## Consultas Globales De Dispositivos
 
-Las consultas operativas requieren un token de auditoria separado del token de provisionamiento:
+La consulta global de dispositivos requiere un token de auditoria separado del token de provisionamiento:
 
 ```text
 X-Auditor-Token: <token-de-auditoria>
@@ -174,16 +185,30 @@ AUDITOR_TOKEN_HEADER=X-Auditor-Token
 
 En entornos no locales, `AUDITOR_TOKEN` y `PROVISIONING_TOKEN` deben tener al menos 32 caracteres. Si no cumplen esa condicion, el backend no arranca.
 
-Los endpoints protegidos son:
+El endpoint protegido por este token es:
 
 ```text
 GET /api/v1/devices
-GET /api/v1/audit/network-events
-GET /api/v1/audit/device-movements
-GET /api/v1/audit/lifecycle-events
 ```
 
-Este token sirve para revisar historicos sin conceder permisos de provisionamiento de agentes.
+## Consultas De Auditoria Por Empresa
+
+Las consultas de eventos requieren una sesion temporal de auditor:
+
+```text
+X-Auditor-Session: <auditor_session_id>
+```
+
+La sesion contiene el `company_id` autorizado. Por eso las consultas de eventos siempre se filtran por empresa aunque el auditor envie `device_id`.
+
+Los endpoints protegidos por sesion son:
+
+```text
+GET /api/v1/audit/network-events
+GET /api/v1/audit/device-movements
+GET /api/v1/audit/incident-window
+GET /api/v1/audit/lifecycle-events
+```
 
 ## Autenticacion Multiempresa Por Terminal
 
@@ -193,9 +218,9 @@ Es la base para operar varias empresas auditoras desde terminal. Cada empresa pu
 dispositivos vinculados, codigos temporales de vinculacion y sesiones temporales de
 auditor.
 
-La sesion de auditor no reemplaza al token historico `X-Auditor-Token` usado por las
-consultas iniciales existentes. Es una capa nueva para autorizar acciones de empresa como
-crear codigos de vinculacion, revisar solicitudes y consultar resumen de empresa.
+La sesion de auditor autoriza acciones de empresa como crear codigos de vinculacion,
+revisar solicitudes, consultar resumen de empresa y revisar eventos de auditoria de esa
+empresa.
 
 ### Para Que Sirve
 
@@ -288,7 +313,6 @@ curl -H "X-Auditor-Session: <auditor_session_id>" \
 ### Limites De Esta Fase
 
 - El envio real de SMS todavia no esta integrado.
-- Los eventos de red y ciclo de vida aun no guardan `company_id`.
 - El dispositivo aun no tiene menu local para seleccionar empresa activa.
 - La desvinculacion libre con aviso a empresa queda para la siguiente fase.
 - La exportacion JSON de auditor por terminal queda para la siguiente fase.
@@ -298,7 +322,7 @@ curl -H "X-Auditor-Session: <auditor_session_id>" \
 Para ver todos los movimientos de un equipo en una sola linea temporal:
 
 ```bash
-curl -H "X-Auditor-Token: valor-de-auditoria-seguro" \
+curl -H "X-Auditor-Session: <auditor_session_id>" \
   "http://127.0.0.1:8000/api/v1/audit/device-movements?device_id=DEV-LAPTOP-042&limit=100"
 ```
 
@@ -313,9 +337,9 @@ La respuesta mezcla conexiones de red y ciclo de vida del agente con campos comu
 La base tambien crea una vista SQL `device_movements` para revisar este historial directo en la DB:
 
 ```sql
-SELECT occurred_at, movement_type, device_id, process_name, summary
+SELECT occurred_at, movement_type, company_id, device_id, process_name, summary
 FROM device_movements
-WHERE device_id = 'DEV-LAPTOP-042'
+WHERE company_id = '<company_id>' AND device_id = 'DEV-LAPTOP-042'
 ORDER BY occurred_at DESC;
 ```
 

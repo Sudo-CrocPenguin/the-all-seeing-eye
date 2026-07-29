@@ -1,3 +1,4 @@
+from datetime import datetime
 from threading import Lock
 
 from backend.app.audit.domain.entities import AgentLifecycleEvent, NetworkAuditEvent
@@ -27,10 +28,27 @@ class InMemoryNetworkAuditEventRepository:
     def list_device_ids(self, filters: NetworkAuditEventFilters) -> set[str]:
         return {item.device_id for item in self._filter_items(filters)}
 
+    def latest_seen_at_by_device(self, filters: NetworkAuditEventFilters) -> dict[str, datetime]:
+        latest_seen: dict[str, datetime] = {}
+        for item in self._filter_items(filters):
+            occurred_at = ensure_aware(item.occurred_at)
+            current = latest_seen.get(item.device_id)
+            if current is None or occurred_at > current:
+                latest_seen[item.device_id] = occurred_at
+        return latest_seen
+
     def _filter_items(self, filters: NetworkAuditEventFilters) -> list[NetworkAuditEvent]:
         with self._lock:
             items = list(self._items)
 
+        if filters.company_id:
+            items = [item for item in items if item.company_id == filters.company_id]
+        if filters.company_device_link_id:
+            items = [
+                item
+                for item in items
+                if item.company_device_link_id == filters.company_device_link_id
+            ]
         if filters.device_id:
             items = [item for item in items if item.device_id == filters.device_id]
         if filters.local_ip:
@@ -73,10 +91,30 @@ class InMemoryAgentLifecycleEventRepository:
     def list_device_ids(self, filters: AgentLifecycleEventFilters) -> set[str]:
         return {item.device_id for item in self._filter_items(filters)}
 
+    def latest_seen_at_by_device(
+        self,
+        filters: AgentLifecycleEventFilters,
+    ) -> dict[str, datetime]:
+        latest_seen: dict[str, datetime] = {}
+        for item in self._filter_items(filters):
+            occurred_at = ensure_aware(item.occurred_at)
+            current = latest_seen.get(item.device_id)
+            if current is None or occurred_at > current:
+                latest_seen[item.device_id] = occurred_at
+        return latest_seen
+
     def _filter_items(self, filters: AgentLifecycleEventFilters) -> list[AgentLifecycleEvent]:
         with self._lock:
             items = list(self._items)
 
+        if filters.company_id:
+            items = [item for item in items if item.company_id == filters.company_id]
+        if filters.company_device_link_id:
+            items = [
+                item
+                for item in items
+                if item.company_device_link_id == filters.company_device_link_id
+            ]
         if filters.device_id:
             items = [item for item in items if item.device_id == filters.device_id]
         if filters.event_type:
