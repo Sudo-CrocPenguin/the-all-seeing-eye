@@ -414,6 +414,34 @@ def test_runner_requires_agent_token_when_using_real_client() -> None:
         raise AssertionError("AgentRunner debe exigir AGENT_TOKEN")
 
 
+def test_runner_requires_company_context_before_audit_events() -> None:
+    identity = DeviceIdentity(
+        device_id="device-1",
+        hostname="DEV-LAPTOP-001",
+        os_name="Linux",
+        agent_version="0.1.0",
+        interfaces=(),
+    )
+    api_client = FakeAuditApiClient()
+    runner = AgentRunner(
+        AgentSettings(),
+        identity_collector=FakeIdentityCollector(identity),
+        network_collector=FakeNetworkCollector([]),
+        api_client=api_client,
+    )
+
+    try:
+        runner.run_once()
+    except AgentConfigurationError as exc:
+        assert "AGENT_COMPANY_ID" in str(exc)
+        assert "AGENT_COMPANY_DEVICE_LINK_ID" in str(exc)
+    else:
+        raise AssertionError("AgentRunner debe exigir empresa activa para auditoria")
+
+    assert api_client.lifecycle_events == []
+    assert api_client.network_events == []
+
+
 def test_api_client_sends_agent_token_header(monkeypatch: Any) -> None:
     captured_headers: dict[str, str] = {}
 
