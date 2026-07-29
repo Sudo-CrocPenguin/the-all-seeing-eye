@@ -245,6 +245,8 @@ En esta primera fase permite:
 - Solicitar vinculacion de un dispositivo a una empresa.
 - Aceptar o denegar solicitudes de vinculacion.
 - Ver un resumen operativo de dispositivos vinculados y solicitudes pendientes.
+- Consultar historial desde CLI con sesion temporal de auditor.
+- Exportar evidencia JSON desde CLI por empresa, rango y dispositivo opcional.
 
 ### Como Funciona
 
@@ -322,9 +324,8 @@ curl -H "X-Auditor-Session: <auditor_session_id>" \
 ### Limites De Esta Fase
 
 - El envio real de SMS todavia no esta integrado.
-- El dispositivo aun no tiene menu local para seleccionar empresa activa.
-- La desvinculacion libre con aviso a empresa queda para la siguiente fase.
-- La exportacion JSON de auditor por terminal queda para la siguiente fase.
+- La exportacion JSON actual vive en el CLI de auditor y compone varias consultas del backend; no existe todavia un endpoint dedicado de exportacion.
+- Falta registrar un log persistente de cada comando sensible ejecutado por auditores.
 
 ### Historial Unificado Del Equipo
 

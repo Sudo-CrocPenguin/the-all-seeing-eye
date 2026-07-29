@@ -10,6 +10,7 @@ El sistema esta pensado para ambientes empresariales donde los empleados son inf
 - [Beta local de historial forense](docs/beta-local-historial-forense.md)
 - [Piloto controlado 0.1.0 beta](docs/piloto-controlado.md)
 - [Diseno de autenticacion multiempresa por terminal](docs/auth-multiempresa-terminal.md)
+- [CLI de auditor multiempresa](auditor/docs/auditor.md)
 
 ## Para Que Sirve
 
@@ -268,7 +269,9 @@ La plataforma debe implementar controles de proteccion desde el inicio:
 
 El proyecto se encuentra preparando beta local. La API cuenta con modelos de dominio, repositorios SQLAlchemy, migraciones Alembic, persistencia PostgreSQL configurada y autenticacion por token para agentes. Las consultas de eventos de auditoria requieren sesion temporal de auditor por empresa. El backend actualiza `last_seen_at` cuando recibe senales validas de agentes autenticados, detecta heartbeats perdidos por vinculo activo, registra recuperaciones y expone una consulta de ventana forense por rango o marca exacta de tiempo.
 
-El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes enriquecidas con usuario local, PID, proceso, ejecutable y mapa local de servicios, adjuntar `company_id` y `company_device_link_id` configurados, guardar eventos pendientes en cola local cuando el backend no responde y desplegarse como servicio administrado en Linux/Windows.
+El agente MVP puede identificar el equipo, reportar ciclo de vida, enviar conexiones salientes enriquecidas con usuario local, PID, proceso, ejecutable y mapa local de servicios, adjuntar `company_id` y `company_device_link_id` desde estado local multiempresa, guardar eventos pendientes en cola local cuando el backend no responde y desplegarse como servicio administrado en Linux/Windows.
+
+El CLI de auditor permite crear empresas, solicitar y verificar sesiones temporales, generar codigos de vinculacion, revisar solicitudes, consultar resumen/historial y exportar evidencia JSON por empresa y rango de fechas sin depender de Swagger.
 
 La beta exige que los eventos pertenezcan a dispositivos registrados, no encola errores fatales del backend, conserva orden causal en la cola local y acepta IP publica desde headers de proxy solo cuando el proxy esta declarado en `TRUSTED_PROXY_IPS`. El `public_ip` del JSON del agente no se usa como evidencia.
 
@@ -317,4 +320,5 @@ Cuando el servicio se detiene con `systemctl stop`, `Stop-Service` o la consola 
 - [Contexto forense de la aplicacion](docs/contexto-forense.md)
 - [Backend de auditoria](backend/docs/backend.md)
 - [Agente MVP de auditoria](agent/docs/agent.md)
+- [CLI de auditor multiempresa](auditor/docs/auditor.md)
 - [Piloto controlado 0.1.0 beta](docs/piloto-controlado.md)
