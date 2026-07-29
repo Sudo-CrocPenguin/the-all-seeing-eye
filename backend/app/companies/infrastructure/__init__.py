@@ -1,0 +1,2 @@
+"""Persistencia de empresas auditoras."""
+
