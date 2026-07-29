@@ -16,13 +16,15 @@ dependencies = [
 
 [project.scripts]
 all-seeing-eye-agent = "agent.app.cli:main"
+all-seeing-eye-auditor = "auditor.app.cli:main"
+ase-auditor = "auditor.app.cli:main"
 
 [build-system]
 requires = ["setuptools>=80.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["agent*", "backend*"]
+include = ["agent*", "auditor*", "backend*"]
 
 [project.optional-dependencies]
 dev = [
