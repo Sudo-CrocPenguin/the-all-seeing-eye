@@ -45,6 +45,16 @@ class Settings(BaseSettings):
         _require_strong_shared_secret("AUDITOR_TOKEN", self.auditor_token)
         _require_strong_shared_secret("PROVISIONING_TOKEN", self.provisioning_token)
         if self.app_env.lower() == "production":
+            if self.api_docs_enabled:
+                raise ValueError("API_DOCS_ENABLED debe ser false en produccion")
+            if not self.health_require_current_migration:
+                raise ValueError(
+                    "HEALTH_REQUIRE_CURRENT_MIGRATION debe ser true en produccion",
+                )
+            if self.persistence_backend != "sqlalchemy":
+                raise ValueError("PERSISTENCE_BACKEND debe ser sqlalchemy en produccion")
+            if not self.database_url.startswith("postgresql"):
+                raise ValueError("DATABASE_URL debe apuntar a PostgreSQL en produccion")
             if self.otp_delivery_provider == "local":
                 raise ValueError("OTP_DELIVERY_PROVIDER no puede ser local en produccion")
             if self.otp_delivery_provider == "twilio":

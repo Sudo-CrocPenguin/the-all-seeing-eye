@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 from types import TracebackType
-from typing import cast
+from typing import Any, cast
 from urllib.parse import parse_qs
 from urllib.request import Request
 
@@ -145,6 +145,8 @@ def test_production_settings_reject_local_otp_provider() -> None:
     with pytest.raises(ValueError, match="OTP_DELIVERY_PROVIDER"):
         Settings(
             app_env="production",
+            api_docs_enabled=False,
+            health_require_current_migration=True,
             auditor_token="a" * 32,
             provisioning_token="b" * 32,
             otp_delivery_provider="local",
@@ -155,6 +157,8 @@ def test_production_settings_require_twilio_credentials() -> None:
     with pytest.raises(ValueError, match="TWILIO_ACCOUNT_SID"):
         Settings(
             app_env="production",
+            api_docs_enabled=False,
+            health_require_current_migration=True,
             auditor_token="a" * 32,
             provisioning_token="b" * 32,
             otp_delivery_provider="twilio",
@@ -162,6 +166,8 @@ def test_production_settings_require_twilio_credentials() -> None:
 
     settings = Settings(
         app_env="production",
+        api_docs_enabled=False,
+        health_require_current_migration=True,
         auditor_token="a" * 32,
         provisioning_token="b" * 32,
         otp_delivery_provider="twilio",
@@ -171,6 +177,33 @@ def test_production_settings_require_twilio_credentials() -> None:
     )
 
     assert settings.otp_delivery_provider == "twilio"
+
+
+def test_production_settings_require_hardened_runtime_flags() -> None:
+    with pytest.raises(ValueError, match="API_DOCS_ENABLED"):
+        _production_settings(api_docs_enabled=True)
+    with pytest.raises(ValueError, match="HEALTH_REQUIRE_CURRENT_MIGRATION"):
+        _production_settings(health_require_current_migration=False)
+    with pytest.raises(ValueError, match="PERSISTENCE_BACKEND"):
+        _production_settings(persistence_backend="memory")
+    with pytest.raises(ValueError, match="DATABASE_URL"):
+        _production_settings(database_url="sqlite+pysqlite:///local.db")
+
+
+def _production_settings(**overrides: Any) -> Settings:
+    values: dict[str, Any] = {
+        "app_env": "production",
+        "api_docs_enabled": False,
+        "health_require_current_migration": True,
+        "auditor_token": "a" * 32,
+        "provisioning_token": "b" * 32,
+        "otp_delivery_provider": "twilio",
+        "twilio_account_sid": "AC123",
+        "twilio_auth_token": "c" * 32,
+        "twilio_from_phone_number": "+15551111111",
+    }
+    values.update(overrides)
+    return Settings(**values)
 
 
 def get_runtime_container(app: FastAPI) -> RuntimeContainer:
