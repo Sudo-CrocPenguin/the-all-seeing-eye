@@ -1,9 +1,11 @@
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import Any, Protocol
 
 from auditor.app.config import AuditorSettings
+from auditor.app.export import build_audit_export
 from auditor.app.state import (
     AuditorSessionState,
     AuditorStateError,
@@ -251,6 +253,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Tamano de ventana si se usa --at.",
     )
     _add_limit_option(incident_window_parser, default=500)
+
+    export_parser = subparsers.add_parser(
+        "export-json",
+        help="Exporta evidencia de auditoria en JSON.",
+    )
+    _add_company_option(export_parser)
+    export_parser.add_argument("--from", dest="from_datetime", required=True, help="Fecha inicial.")
+    export_parser.add_argument("--to", dest="to_datetime", required=True, help="Fecha final.")
+    export_parser.add_argument("--device-id", help="Filtro opcional por dispositivo.")
+    _add_limit_option(export_parser, default=500)
+    export_parser.add_argument("--output", help="Archivo destino. Si se omite, imprime stdout.")
     return parser
 
 
@@ -311,6 +324,9 @@ def main() -> None:
             return
         if args.command == "history":
             _print_history(settings, args)
+            return
+        if args.command == "export-json":
+            _export_json(settings, args)
             return
         parser.error("Comando no soportado")
     except (AuditorStateError, AuditorTransportError, ValueError) as exc:
@@ -584,6 +600,35 @@ def _print_incident_window(settings: AuditorSettings, args: argparse.Namespace) 
 
 def _list_value(value: object) -> list[object]:
     return value if isinstance(value, list) else []
+
+
+def _export_json(settings: AuditorSettings, args: argparse.Namespace) -> None:
+    session = _load_required_session(settings, args.company)
+    export_payload = build_audit_export(
+        _build_auditor_api_client(settings),
+        session,
+        from_datetime=args.from_datetime,
+        to_datetime=args.to_datetime,
+        device_id=args.device_id,
+        limit=args.limit,
+    )
+    serialized_export = json.dumps(export_payload, indent=2, sort_keys=True)
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(f"{serialized_export}\n", encoding="utf-8")
+        network_events = _list_value(export_payload["events"].get("network_events"))
+        lifecycle_events = _list_value(export_payload["events"].get("lifecycle_events"))
+        device_movements = _list_value(export_payload["events"].get("device_movements"))
+        print(
+            f"Export JSON: {output_path} "
+            f"network={len(network_events)} "
+            f"lifecycle={len(lifecycle_events)} "
+            f"movements={len(device_movements)}",
+        )
+        return
+
+    print(serialized_export)
 
 
 def _print_session_saved(session: AuditorSessionState) -> None:

@@ -1,3 +1,4 @@
+import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -5,6 +6,7 @@ from typing import Any
 
 from auditor.app import cli as auditor_cli
 from auditor.app.config import AuditorSettings
+from auditor.app.export import build_audit_export
 from auditor.app.state import AuditorSessionState, JsonAuditorSessionStore
 
 
@@ -375,6 +377,82 @@ def test_cli_history_incident_window_prints_counts(
     )
     assert "Active devices: 1" in output
     assert "Network events: 1" in output
+
+
+def test_build_audit_export_includes_metadata_and_company_filtered_events() -> None:
+    fake_client = FakeAuditorCliApiClient()
+    session = AuditorSessionState(
+        auditor_session_id="session-1",
+        company_id="company-1",
+        device_id="device-1",
+        expires_at="2999-01-01T00:00:00+00:00",
+        scopes=("audit:read",),
+    )
+
+    export_payload = build_audit_export(
+        fake_client,
+        session,
+        from_datetime="2026-07-29T10:00:00+00:00",
+        to_datetime="2026-07-29T11:00:00+00:00",
+        device_id="device-1",
+        limit=500,
+        exported_at=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
+    )
+
+    assert export_payload["format_version"] == "audit-export/v1"
+    assert export_payload["metadata"]["company"]["company_id"] == "company-1"
+    assert export_payload["metadata"]["filters"]["device_id"] == "device-1"
+    assert export_payload["events"]["network_events"][0]["company_id"] == "company-1"
+    assert export_payload["events"]["lifecycle_events"][0]["company_id"] == "company-1"
+    assert export_payload["events"]["device_movements"][0]["company_id"] == "company-1"
+
+
+def test_cli_export_json_writes_file(
+    tmp_path: Any,
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    session_file = tmp_path / "auditor-session.json"
+    export_file = tmp_path / "exports" / "audit.json"
+    _save_valid_session(session_file)
+    fake_client = FakeAuditorCliApiClient()
+    monkeypatch.setattr(auditor_cli, "_build_auditor_api_client", lambda _settings: fake_client)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "ase-auditor",
+            "--session-file",
+            str(session_file),
+            "export-json",
+            "--from",
+            "2026-07-29T10:00:00+00:00",
+            "--to",
+            "2026-07-29T11:00:00+00:00",
+            "--device-id",
+            "device-1",
+            "--output",
+            str(export_file),
+        ],
+    )
+
+    auditor_cli.main()
+
+    output = capsys.readouterr().out
+    exported_payload = json.loads(export_file.read_text(encoding="utf-8"))
+    assert "Export JSON:" in output
+    assert exported_payload["metadata"]["company"]["company_id"] == "company-1"
+    assert exported_payload["metadata"]["filters"]["from"] == "2026-07-29T10:00:00+00:00"
+    assert exported_payload["events"]["network_events"][0]["company_id"] == "company-1"
+    assert fake_client.movements_history_request == (
+        "session-1",
+        "device-1",
+        {
+            "from": "2026-07-29T10:00:00+00:00",
+            "to": "2026-07-29T11:00:00+00:00",
+            "limit": 500,
+        },
+    )
 
 
 def _save_valid_session(session_file: Path) -> None:
