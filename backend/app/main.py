@@ -14,7 +14,7 @@ from backend.app.shared.config import Settings, get_settings
 from backend.app.shared.container import RuntimeContainer, build_container
 from backend.app.shared.domain import DomainValidationError
 
-API_VERSION = "0.1.0-beta.1"
+API_VERSION = "1.0.0"
 
 
 def create_app(
