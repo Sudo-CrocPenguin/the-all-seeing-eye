@@ -1,12 +1,22 @@
 from datetime import UTC, datetime
-from typing import cast
+from types import TracebackType
+from typing import Any, cast
+from urllib.parse import parse_qs
+from urllib.request import Request
 
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from backend.app.companies.application.otp_delivery import (
+    AuditorOtpDeliveryRequest,
+    LocalOtpDeliveryProvider,
+)
+from backend.app.companies.infrastructure.otp_delivery import TwilioOtpDeliveryProvider
 from backend.app.companies.infrastructure.sqlalchemy_models import (
+    AuditorOtpEventModel,
     CompanyDeviceLinkModel,
     EnrollmentRequestModel,
 )
@@ -15,6 +25,37 @@ from backend.app.shared.config import Settings
 from backend.app.shared.container import RuntimeContainer
 
 PROVISIONING_TOKEN = "test-provisioning-token"
+
+
+class FakeTwilioResponse:
+    def __enter__(self) -> "FakeTwilioResponse":
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return b'{"sid":"SM123"}'
+
+
+class CapturingTwilioOpener:
+    def __init__(self) -> None:
+        self.request_body: str | None = None
+        self.authorization_header: str | None = None
+        self.timeout_seconds: float | None = None
+
+    def __call__(self, request: Request, timeout_seconds: float) -> FakeTwilioResponse:
+        body = request.data
+        assert isinstance(body, bytes)
+        self.request_body = body.decode()
+        self.authorization_header = request.get_header("Authorization")
+        self.timeout_seconds = timeout_seconds
+        return FakeTwilioResponse()
 
 
 def create_test_app() -> FastAPI:
@@ -28,6 +69,158 @@ def create_test_app() -> FastAPI:
         ),
         create_schema=True,
     )
+
+
+def create_rate_limited_test_app() -> FastAPI:
+    return create_app(
+        settings=Settings(
+            app_env="local",
+            database_url="sqlite+pysqlite:///:memory:",
+            persistence_backend="sqlalchemy",
+            auditor_token="test-auditor-token",
+            provisioning_token=PROVISIONING_TOKEN,
+            otp_rate_limit_max_per_company=99,
+            otp_rate_limit_max_per_device=1,
+            otp_rate_limit_max_per_ip=99,
+        ),
+        create_schema=True,
+    )
+
+
+def create_ip_rate_limited_test_app() -> FastAPI:
+    return create_app(
+        settings=Settings(
+            app_env="local",
+            database_url="sqlite+pysqlite:///:memory:",
+            persistence_backend="sqlalchemy",
+            auditor_token="test-auditor-token",
+            provisioning_token=PROVISIONING_TOKEN,
+            trusted_proxy_ips="127.0.0.1/32",
+            otp_rate_limit_max_per_company=99,
+            otp_rate_limit_max_per_device=99,
+            otp_rate_limit_max_per_ip=1,
+        ),
+        create_schema=True,
+    )
+
+
+def test_local_otp_delivery_can_expose_code_only_when_configured() -> None:
+    delivery_request = AuditorOtpDeliveryRequest(
+        company_id="company-1",
+        company_name="Acme",
+        phone_number="+15550000000",
+        device_id="device-1",
+        verification_code="123456",
+        expires_at=datetime(2026, 7, 29, 10, 10, tzinfo=UTC),
+    )
+
+    exposed_result = LocalOtpDeliveryProvider(
+        expose_verification_code=True,
+    ).deliver_auditor_otp(delivery_request)
+    hidden_result = LocalOtpDeliveryProvider(
+        expose_verification_code=False,
+    ).deliver_auditor_otp(delivery_request)
+
+    assert exposed_result.delivery_channel == "local_response"
+    assert exposed_result.exposed_verification_code == "123456"
+    assert hidden_result.delivery_channel == "local_response"
+    assert hidden_result.exposed_verification_code is None
+
+
+def test_twilio_otp_delivery_posts_sms_payload_without_exposing_code() -> None:
+    opener = CapturingTwilioOpener()
+    provider = TwilioOtpDeliveryProvider(
+        account_sid="AC123",
+        auth_token="secret-token",
+        from_phone_number="+15551111111",
+        timeout_seconds=5,
+        opener=opener,
+    )
+    delivery_request = AuditorOtpDeliveryRequest(
+        company_id="company-1",
+        company_name="Acme",
+        phone_number="+15550000000",
+        device_id="device-1",
+        verification_code="654321",
+        expires_at=datetime(2026, 7, 29, 10, 10, tzinfo=UTC),
+    )
+
+    result = provider.deliver_auditor_otp(delivery_request)
+
+    assert result.delivery_channel == "sms"
+    assert result.exposed_verification_code is None
+    assert opener.authorization_header == "Basic QUMxMjM6c2VjcmV0LXRva2Vu"
+    assert opener.timeout_seconds == 5
+    assert opener.request_body is not None
+    parsed_body = parse_qs(opener.request_body)
+    assert parsed_body["To"] == ["+15550000000"]
+    assert parsed_body["From"] == ["+15551111111"]
+    assert "654321" in parsed_body["Body"][0]
+
+
+def test_production_settings_reject_local_otp_provider() -> None:
+    with pytest.raises(ValueError, match="OTP_DELIVERY_PROVIDER"):
+        Settings(
+            app_env="production",
+            api_docs_enabled=False,
+            health_require_current_migration=True,
+            auditor_token="a" * 32,
+            provisioning_token="b" * 32,
+            otp_delivery_provider="local",
+        )
+
+
+def test_production_settings_require_twilio_credentials() -> None:
+    with pytest.raises(ValueError, match="TWILIO_ACCOUNT_SID"):
+        Settings(
+            app_env="production",
+            api_docs_enabled=False,
+            health_require_current_migration=True,
+            auditor_token="a" * 32,
+            provisioning_token="b" * 32,
+            otp_delivery_provider="twilio",
+        )
+
+    settings = Settings(
+        app_env="production",
+        api_docs_enabled=False,
+        health_require_current_migration=True,
+        auditor_token="a" * 32,
+        provisioning_token="b" * 32,
+        otp_delivery_provider="twilio",
+        twilio_account_sid="AC123",
+        twilio_auth_token="c" * 32,
+        twilio_from_phone_number="+15551111111",
+    )
+
+    assert settings.otp_delivery_provider == "twilio"
+
+
+def test_production_settings_require_hardened_runtime_flags() -> None:
+    with pytest.raises(ValueError, match="API_DOCS_ENABLED"):
+        _production_settings(api_docs_enabled=True)
+    with pytest.raises(ValueError, match="HEALTH_REQUIRE_CURRENT_MIGRATION"):
+        _production_settings(health_require_current_migration=False)
+    with pytest.raises(ValueError, match="PERSISTENCE_BACKEND"):
+        _production_settings(persistence_backend="memory")
+    with pytest.raises(ValueError, match="DATABASE_URL"):
+        _production_settings(database_url="sqlite+pysqlite:///local.db")
+
+
+def _production_settings(**overrides: Any) -> Settings:
+    values: dict[str, Any] = {
+        "app_env": "production",
+        "api_docs_enabled": False,
+        "health_require_current_migration": True,
+        "auditor_token": "a" * 32,
+        "provisioning_token": "b" * 32,
+        "otp_delivery_provider": "twilio",
+        "twilio_account_sid": "AC123",
+        "twilio_auth_token": "c" * 32,
+        "twilio_from_phone_number": "+15551111111",
+    }
+    values.update(overrides)
+    return Settings(**values)
 
 
 def get_runtime_container(app: FastAPI) -> RuntimeContainer:
@@ -261,6 +454,17 @@ async def test_wrong_sms_code_does_not_create_auditor_session() -> None:
     assert verify_response.status_code == 422
     assert verify_response.json()["detail"] == "Codigo SMS invalido"
 
+    runtime_container = get_runtime_container(app)
+    assert runtime_container.session_factory is not None
+    with runtime_container.session_factory() as session:
+        event_types = [
+            item.event_type
+            for item in session.scalars(
+                select(AuditorOtpEventModel).order_by(AuditorOtpEventModel.occurred_at),
+            )
+        ]
+    assert event_types == ["REQUESTED", "FAILED"]
+
 
 @pytest.mark.anyio
 async def test_verified_auditor_request_cannot_be_replayed() -> None:
@@ -310,6 +514,17 @@ async def test_verified_auditor_request_cannot_be_replayed() -> None:
 
     assert replay_response.status_code == 422
     assert replay_response.json()["detail"] == "La solicitud de auditor ya fue verificada"
+
+    runtime_container = get_runtime_container(app)
+    assert runtime_container.session_factory is not None
+    with runtime_container.session_factory() as session:
+        event_types = [
+            item.event_type
+            for item in session.scalars(
+                select(AuditorOtpEventModel).order_by(AuditorOtpEventModel.occurred_at),
+            )
+        ]
+    assert event_types == ["REQUESTED", "VERIFIED"]
 
 
 @pytest.mark.anyio
@@ -362,6 +577,112 @@ async def test_sms_code_is_blocked_after_max_failed_attempts() -> None:
     )
     assert valid_after_block_response.status_code == 422
     assert valid_after_block_response.json()["detail"] == "La solicitud de auditor fue denegada"
+
+    runtime_container = get_runtime_container(app)
+    assert runtime_container.session_factory is not None
+    with runtime_container.session_factory() as session:
+        event_types = [
+            item.event_type
+            for item in session.scalars(
+                select(AuditorOtpEventModel).order_by(AuditorOtpEventModel.occurred_at),
+            )
+        ]
+    assert event_types == ["REQUESTED", "FAILED", "FAILED", "FAILED", "FAILED", "FAILED", "BLOCKED"]
+
+
+@pytest.mark.anyio
+async def test_auditor_access_request_rate_limit_blocks_by_device() -> None:
+    app = create_rate_limited_test_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        company_id = await create_company(client)
+        agent_token = await provision_agent_token(client, device_id="device-auditor")
+        await register_device(
+            client,
+            device_id="device-auditor",
+            agent_token=agent_token,
+            hostname="AUDITOR-LAPTOP",
+        )
+        first_response = await client.post(
+            f"/api/v1/companies/{company_id}/auditor-access-requests",
+            headers={"X-Agent-Token": agent_token},
+            json={"device_id": "device-auditor"},
+        )
+        second_response = await client.post(
+            f"/api/v1/companies/{company_id}/auditor-access-requests",
+            headers={"X-Agent-Token": agent_token},
+            json={"device_id": "device-auditor"},
+        )
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 429
+    assert second_response.json()["detail"] == (
+        "Limite de solicitudes OTP excedido: dispositivo"
+    )
+
+    runtime_container = get_runtime_container(app)
+    assert runtime_container.session_factory is not None
+    with runtime_container.session_factory() as session:
+        events = list(
+            session.scalars(
+                select(AuditorOtpEventModel).order_by(AuditorOtpEventModel.occurred_at),
+            ),
+        )
+    assert [event.event_type for event in events] == ["REQUESTED", "BLOCKED"]
+    assert events[-1].event_metadata == {"reason": "dispositivo"}
+
+
+@pytest.mark.anyio
+async def test_auditor_access_request_rate_limit_uses_trusted_forwarded_ip() -> None:
+    app = create_ip_rate_limited_test_app()
+    transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 12345))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        company_id = await create_company(client)
+        first_token = await provision_agent_token(client, device_id="device-auditor-1")
+        second_token = await provision_agent_token(client, device_id="device-auditor-2")
+        await register_device(
+            client,
+            device_id="device-auditor-1",
+            agent_token=first_token,
+            hostname="AUDITOR-LAPTOP-1",
+        )
+        await register_device(
+            client,
+            device_id="device-auditor-2",
+            agent_token=second_token,
+            hostname="AUDITOR-LAPTOP-2",
+        )
+        first_response = await client.post(
+            f"/api/v1/companies/{company_id}/auditor-access-requests",
+            headers={
+                "X-Agent-Token": first_token,
+                "X-Forwarded-For": "203.0.113.10",
+            },
+            json={"device_id": "device-auditor-1"},
+        )
+        second_response = await client.post(
+            f"/api/v1/companies/{company_id}/auditor-access-requests",
+            headers={
+                "X-Agent-Token": second_token,
+                "X-Forwarded-For": "203.0.113.10",
+            },
+            json={"device_id": "device-auditor-2"},
+        )
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 429
+    assert second_response.json()["detail"] == "Limite de solicitudes OTP excedido: ip"
+
+    runtime_container = get_runtime_container(app)
+    assert runtime_container.session_factory is not None
+    with runtime_container.session_factory() as session:
+        events = list(
+            session.scalars(
+                select(AuditorOtpEventModel).order_by(AuditorOtpEventModel.occurred_at),
+            ),
+        )
+    assert [event.event_type for event in events] == ["REQUESTED", "BLOCKED"]
+    assert [event.client_ip for event in events] == ["203.0.113.10", "203.0.113.10"]
 
 
 def test_company_auth_schema_blocks_duplicate_pending_enrollment_requests() -> None:

@@ -1,7 +1,10 @@
+from datetime import datetime
 from typing import Protocol
 
 from backend.app.companies.domain.entities import (
     AuditorAccessRequest,
+    AuditorOtpEvent,
+    AuditorOtpEventType,
     AuditorSession,
     Company,
     CompanyDeviceLink,
@@ -97,4 +100,20 @@ class AuditorSessionRepository(Protocol):
         raise NotImplementedError
 
     def list_active_by_company(self, company_id: str) -> list[AuditorSession]:
+        raise NotImplementedError
+
+
+class AuditorOtpEventRepository(Protocol):
+    def save(self, otp_event: AuditorOtpEvent) -> AuditorOtpEvent:
+        raise NotImplementedError
+
+    def count_recent_events(
+        self,
+        *,
+        event_type: AuditorOtpEventType,
+        since: datetime,
+        company_id: str | None = None,
+        device_id: str | None = None,
+        client_ip: str | None = None,
+    ) -> int:
         raise NotImplementedError

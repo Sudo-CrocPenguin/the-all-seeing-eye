@@ -103,3 +103,36 @@ class AuditorSessionModel(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     scopes: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AuditorOtpEventModel(Base):
+    __tablename__ = "auditor_otp_events"
+    __table_args__ = (
+        Index(
+            "ix_auditor_otp_events_company_type_occurred",
+            "company_id",
+            "event_type",
+            "occurred_at",
+        ),
+        Index(
+            "ix_auditor_otp_events_device_type_occurred",
+            "device_id",
+            "event_type",
+            "occurred_at",
+        ),
+        Index(
+            "ix_auditor_otp_events_ip_type_occurred",
+            "client_ip",
+            "event_type",
+            "occurred_at",
+        ),
+    )
+
+    otp_event_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    company_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    client_ip: Mapped[str | None] = mapped_column(String(64), index=True)
+    auditor_access_request_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    event_metadata: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False)

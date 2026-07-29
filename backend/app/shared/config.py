@@ -25,6 +25,15 @@ class Settings(BaseSettings):
     provisioning_token: str | None = None
     provisioning_token_header: str = "X-Provisioning-Token"
     trusted_proxy_ips: str = ""
+    otp_delivery_provider: Literal["local", "twilio"] = "local"
+    otp_delivery_timeout_seconds: int = 10
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_from_phone_number: str | None = None
+    otp_rate_limit_window_seconds: int = 600
+    otp_rate_limit_max_per_company: int = 5
+    otp_rate_limit_max_per_device: int = 3
+    otp_rate_limit_max_per_ip: int = 20
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
@@ -35,6 +44,23 @@ class Settings(BaseSettings):
 
         _require_strong_shared_secret("AUDITOR_TOKEN", self.auditor_token)
         _require_strong_shared_secret("PROVISIONING_TOKEN", self.provisioning_token)
+        if self.app_env.lower() == "production":
+            if self.api_docs_enabled:
+                raise ValueError("API_DOCS_ENABLED debe ser false en produccion")
+            if not self.health_require_current_migration:
+                raise ValueError(
+                    "HEALTH_REQUIRE_CURRENT_MIGRATION debe ser true en produccion",
+                )
+            if self.persistence_backend != "sqlalchemy":
+                raise ValueError("PERSISTENCE_BACKEND debe ser sqlalchemy en produccion")
+            if not self.database_url.startswith("postgresql"):
+                raise ValueError("DATABASE_URL debe apuntar a PostgreSQL en produccion")
+            if self.otp_delivery_provider == "local":
+                raise ValueError("OTP_DELIVERY_PROVIDER no puede ser local en produccion")
+            if self.otp_delivery_provider == "twilio":
+                _require_text("TWILIO_ACCOUNT_SID", self.twilio_account_sid)
+                _require_strong_shared_secret("TWILIO_AUTH_TOKEN", self.twilio_auth_token)
+                _require_text("TWILIO_FROM_PHONE_NUMBER", self.twilio_from_phone_number)
         return self
 
 
@@ -49,3 +75,8 @@ def _require_strong_shared_secret(name: str, value: str | None) -> None:
             f"{name} debe tener al menos {_MIN_SHARED_SECRET_LENGTH} caracteres "
             "en entornos no locales",
         )
+
+
+def _require_text(name: str, value: str | None) -> None:
+    if value is None or value.strip() == "":
+        raise ValueError(f"{name} es obligatorio")

@@ -1,0 +1,13 @@
+.git
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.venv
+__pycache__
+*.pyc
+*.db
+backups
+.env
+.env.*
+!.env.example
+!.env.production.example

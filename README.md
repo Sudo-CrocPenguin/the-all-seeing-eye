@@ -11,6 +11,8 @@ El sistema esta pensado para ambientes empresariales donde los empleados son inf
 - [Piloto controlado 0.1.0 beta](docs/piloto-controlado.md)
 - [Diseno de autenticacion multiempresa por terminal](docs/auth-multiempresa-terminal.md)
 - [CLI de auditor multiempresa](auditor/docs/auditor.md)
+- [Produccion V1](docs/v1-produccion.md)
+- [Smoke test V1](docs/v1-smoke-test.md)
 
 ## Para Que Sirve
 
@@ -322,3 +324,5 @@ Cuando el servicio se detiene con `systemctl stop`, `Stop-Service` o la consola 
 - [Agente MVP de auditoria](agent/docs/agent.md)
 - [CLI de auditor multiempresa](auditor/docs/auditor.md)
 - [Piloto controlado 0.1.0 beta](docs/piloto-controlado.md)
+- [Produccion V1](docs/v1-produccion.md)
+- [Smoke test V1](docs/v1-smoke-test.md)

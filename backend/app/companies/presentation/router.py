@@ -1,3 +1,4 @@
+from ipaddress import ip_address, ip_network
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -16,6 +17,8 @@ from backend.app.companies.application.query_device_company_links import (
     QueryDeviceCompanyLinksUseCase,
 )
 from backend.app.companies.application.request_auditor_access import (
+    OtpRateLimitExceeded,
+    OtpRateLimitPolicy,
     RequestAuditorAccessUseCase,
 )
 from backend.app.companies.application.request_device_enrollment import (
@@ -53,16 +56,68 @@ from backend.app.shared.security import require_agent_token, require_auditor_ses
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
-_LOCAL_ENVS = {"local", "test", "development"}
+_CLIENT_IP_HEADERS = (
+    "X-Forwarded-For",
+    "X-Real-IP",
+    "CF-Connecting-IP",
+)
 
 
-def _expose_local_verification_code(request: Request) -> bool:
+def _client_ip(request: Request) -> str | None:
+    if request.client is None:
+        return None
     settings = request.app.state.container.settings
-    return settings.app_env.lower() in _LOCAL_ENVS
+    if _is_trusted_proxy(request.client.host, settings.trusted_proxy_ips):
+        for header_name in _CLIENT_IP_HEADERS:
+            forwarded_ip = _first_valid_ip(request.headers.get(header_name))
+            if forwarded_ip is not None:
+                return forwarded_ip
+    return request.client.host
 
 
-def _delivery_channel(request: Request) -> str:
-    return "local_response" if _expose_local_verification_code(request) else "sms"
+def _first_valid_ip(raw_value: str | None) -> str | None:
+    if raw_value is None:
+        return None
+
+    for candidate in raw_value.split(","):
+        try:
+            return str(ip_address(candidate.strip()))
+        except ValueError:
+            continue
+    return None
+
+
+def _is_trusted_proxy(client_host: str, trusted_proxy_ips: str) -> bool:
+    trusted_ranges = [
+        raw_range.strip()
+        for raw_range in trusted_proxy_ips.split(",")
+        if raw_range.strip()
+    ]
+    if not trusted_ranges:
+        return False
+
+    try:
+        client_ip = ip_address(client_host)
+    except ValueError:
+        return False
+
+    for raw_range in trusted_ranges:
+        try:
+            if client_ip in ip_network(raw_range, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _otp_rate_limit_policy(request: Request) -> OtpRateLimitPolicy:
+    settings = request.app.state.container.settings
+    return OtpRateLimitPolicy(
+        window_seconds=settings.otp_rate_limit_window_seconds,
+        max_per_company=settings.otp_rate_limit_max_per_company,
+        max_per_device=settings.otp_rate_limit_max_per_device,
+        max_per_ip=settings.otp_rate_limit_max_per_ip,
+    )
 
 
 @router.post("", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
@@ -134,7 +189,7 @@ async def request_auditor_access(
     payload: RequestAuditorAccessRequest,
     request: Request,
     container: Annotated[AppContainer, Depends(get_container)],
-) -> AuditorAccessRequestResponse:
+) -> AuditorAccessRequestResponse | JSONResponse:
     require_agent_token(
         request,
         request.app.state.container.settings,
@@ -145,14 +200,21 @@ async def request_auditor_access(
     use_case = RequestAuditorAccessUseCase(
         container.company_repository,
         container.auditor_access_request_repository,
+        otp_delivery_provider=container.otp_delivery_provider,
+        otp_event_repository=container.auditor_otp_event_repository,
+        otp_rate_limit_policy=_otp_rate_limit_policy(request),
     )
-    result = use_case.execute(
-        payload.to_command(company_id),
-        expose_verification_code=_expose_local_verification_code(request),
-    )
+    try:
+        result = use_case.execute(
+            payload.to_command(company_id, client_ip=_client_ip(request)),
+        )
+    except OtpRateLimitExceeded as exc:
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content={"detail": str(exc)},
+        )
     return AuditorAccessRequestResponse.from_result(
         result,
-        delivery_channel=_delivery_channel(request),
     )
 
 
@@ -178,11 +240,13 @@ async def verify_auditor_access(
     use_case = VerifyAuditorAccessUseCase(
         container.auditor_access_request_repository,
         container.auditor_session_repository,
+        otp_event_repository=container.auditor_otp_event_repository,
     )
     result = use_case.execute(
         payload.to_command(
             company_id=company_id,
             auditor_access_request_id=auditor_access_request_id,
+            client_ip=_client_ip(request),
         ),
     )
     if not result.is_success or result.session is None:
