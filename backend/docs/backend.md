@@ -113,6 +113,8 @@ POST /api/v1/companies/{company_id}/auditor-access-requests
 POST /api/v1/companies/{company_id}/auditor-access-requests/{request_id}/verify
 POST /api/v1/companies/{company_id}/enrollment-codes
 POST /api/v1/companies/enrollment-requests
+GET  /api/v1/companies/device-links
+POST /api/v1/companies/device-links/{company_device_link_id}/revoke
 GET  /api/v1/companies/{company_id}/enrollment-requests
 POST /api/v1/companies/{company_id}/enrollment-requests/{request_id}/review
 GET  /api/v1/companies/{company_id}/summary
@@ -139,6 +141,9 @@ Los endpoints protegidos son:
 
 ```text
 POST /api/v1/devices
+POST /api/v1/companies/enrollment-requests
+GET  /api/v1/companies/device-links?device_id=<device_id>
+POST /api/v1/companies/device-links/{company_device_link_id}/revoke
 POST /api/v1/audit/network-events
 POST /api/v1/audit/lifecycle-events
 ```
@@ -157,6 +162,10 @@ company_device_link_id
 El backend valida que `company_device_link_id` pertenezca a `company_id`, al `device_id` autenticado y que el vinculo este `ACTIVE`. Los eventos historicos conservan esos IDs aunque el vinculo se revoque despues.
 
 Desde V1 estos campos son obligatorios tambien en la base de datos. La migracion multiempresa asume una base limpia o eventos beta ya migrados con un `company_id` y `company_device_link_id` historico. Si existen eventos legacy sin contexto, se deben exportar, asociar por backfill o purgar antes de ejecutar Alembic en produccion.
+
+El agente puede listar sus vinculos con `GET /api/v1/companies/device-links?device_id=<device_id>`. El backend valida que el `X-Agent-Token` pertenezca al `device_id` solicitado. La respuesta incluye `company_name`, `status`, `linked_at` y datos de revocacion para poblar el estado local.
+
+La desvinculacion se hace con `POST /api/v1/companies/device-links/{company_device_link_id}/revoke` y body `{"device_id":"..."}`. El backend valida que el token corresponda al dispositivo y que el vinculo pertenezca a ese dispositivo. La revocacion marca el vinculo como `REVOKED`; no borra eventos historicos.
 
 La IP publica observada se toma del socket de entrada o de headers de proxy solo si la solicitud llega desde un proxy confiable configurado en:
 

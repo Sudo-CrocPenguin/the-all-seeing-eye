@@ -528,18 +528,19 @@ AuditorSession
 
 Tambien expone endpoints para crear empresas, solicitar y verificar acceso auditor,
 generar codigos de vinculacion, solicitar vinculacion de dispositivos, revisar solicitudes,
-consultar resumen de empresa y consultar eventos de auditoria filtrados por sesion de
-empresa.
+consultar resumen de empresa, listar vinculos del dispositivo, revocar vinculos desde el
+agente y consultar eventos de auditoria filtrados por sesion de empresa.
 
 Los eventos de red y ciclo de vida ya guardan `company_id` y
 `company_device_link_id`. El backend valida que el vinculo este activo al ingerir eventos
 nuevos y conserva los eventos historicos aunque el vinculo se revoque despues.
 
+El agente ya cuenta con estado local multiempresa en `agent-state.json` y comandos de
+terminal para sincronizar empresas, seleccionar empresa activa, encender/apagar registro
+de red, solicitar vinculacion, desvincular empresas y ejecutar el runner.
+
 Pendiente para siguientes iteraciones:
 
-- empresa activa local persistente en el agente
-- menu terminal de dispositivo
 - menu terminal de auditor
-- desvinculacion libre con notificacion
 - exportacion JSON de auditor
 - proveedor real de SMS
