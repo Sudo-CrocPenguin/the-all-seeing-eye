@@ -513,3 +513,29 @@ Fase 6: exportacion JSON y log de comandos de auditor.
 Fase 7: hardening: llaves de dispositivo, rotacion, limites, retencion y alertas.
 ```
 
+## Estado Implementado Inicial
+
+La primera implementacion de backend cubre:
+
+```text
+Company
+EnrollmentCode
+EnrollmentRequest
+CompanyDeviceLink
+AuditorAccessRequest
+AuditorSession
+```
+
+Tambien expone endpoints para crear empresas, solicitar y verificar acceso auditor,
+generar codigos de vinculacion, solicitar vinculacion de dispositivos, revisar solicitudes
+y consultar resumen de empresa.
+
+Pendiente para siguientes iteraciones:
+
+- asociar cada evento de red/ciclo de vida a `company_id`
+- empresa activa local en el agente
+- menu terminal de dispositivo
+- menu terminal de auditor
+- desvinculacion libre con notificacion
+- exportacion JSON de auditor
+- proveedor real de SMS
